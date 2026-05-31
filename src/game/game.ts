@@ -6,7 +6,7 @@ import {
 import { chars } from "../gfx/tiles";
 import { MAZES, MAZE_N, SPACE_TILE, FILLER_TILE } from "../levels/mazes";
 import {
-  loadMaze, balloonHits, genSpikes, spikePos, clearAround, MAZE_COUNT,
+  loadMaze, balloonHits, genSpikes, spikePos, MAZE_COUNT,
   type PlayMaze, type Spike,
 } from "./maze";
 import { Input } from "./input";
@@ -68,18 +68,10 @@ export class Game {
   }
 
   private spawn() {
-    // Drop the balloon into the open lane just inside the START opening rather
-    // than on the marker — nudge toward the maze interior (works whichever edge
-    // START is on), then guarantee the spawn cell is safe.
-    const b = this.maze.bounds;
-    const cx = (b.x0 + b.x1) / 2, cy = (b.y0 + b.y1) / 2;
-    const sx = this.maze.start.x, sy = this.maze.start.y;
-    const dx = cx - sx, dy = cy - sy;
-    const d = Math.hypot(dx, dy) || 1;
-    const off = 13;
-    this.px = Math.max(b.x0, Math.min(b.x1, sx + (dx / d) * off));
-    this.py = Math.max(b.y0, Math.min(b.y1, sy + (dy / d) * off));
-    clearAround(this.maze, this.px, this.py, 1, 1);
+    // Spawn at the authentic START marker (loadMaze already cleared a safe
+    // pocket around it). No nudging — that caused instant-pop in tight mazes.
+    this.px = this.maze.start.x;
+    this.py = this.maze.start.y;
     this.phase = 0;
     this.idle = 0;
     this.blowing = false;

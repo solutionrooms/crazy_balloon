@@ -1,56 +1,62 @@
 import "./style.css";
 import { createDisplay } from "./engine/canvas";
 import { startLoop } from "./engine/loop";
-import { SCREEN_W, SCREEN_H, TILE, COLS } from "./engine/constants";
-import { chars } from "./gfx/tiles";
-import { MAZES, MAZE_N, SPACE_TILE, FILLER_TILE } from "./levels/mazes";
+import { Input } from "./game/input";
+import { Audio } from "./game/audio";
+import { Game } from "./game/game";
 
 const app = document.getElementById("app")!;
 const { ctx } = createDisplay(app);
 
-// Show maze 0 for now (the level-1 / attract layout). 32-wide portrait grid;
-// crop 4 overscan columns to the 28 visible. Tunable until it lines up.
-let mazeIndex = 0;
-const CROP_LEFT = 2; // drop 2 columns each side (32 -> 28 visible)
+const input = new Input();
+const audio = new Audio();
+const game = new Game(input, audio);
 
-function drawMaze(idx: number) {
-  const maze = MAZES[idx];
-  for (let r = 0; r < MAZE_N; r++) {
-    for (let c = 0; c < MAZE_N; c++) {
-      const t = maze.tiles[r * MAZE_N + c];
-      if (t === SPACE_TILE || t === FILLER_TILE) continue;
-      const x = (c - CROP_LEFT) * TILE;
-      if (x < 0 || x >= SCREEN_W) continue;
-      chars.draw(ctx, t, maze.theme, x, r * TILE);
-    }
+// Unlock audio on the first user gesture (browser autoplay policy).
+const unlock = () => audio.unlock();
+addEventListener("keydown", unlock, { once: true });
+addEventListener("pointerdown", unlock, { once: true });
+
+if (location.search.includes("play")) (game as any).begin();
+
+buildTouchControls(input, () => (game as any).begin());
+
+startLoop(
+  (dt) => game.update(dt),
+  () => game.render(ctx),
+);
+
+/** On-screen D-pad + start button for touch devices. */
+function buildTouchControls(input: Input, start: () => void) {
+  const pad = document.createElement("div");
+  pad.className = "touch";
+  pad.innerHTML = `
+    <div class="dpad">
+      <button data-dir="up">▲</button>
+      <div class="dpad-mid">
+        <button data-dir="left">◀</button>
+        <button data-dir="start" class="start">GO</button>
+        <button data-dir="right">▶</button>
+      </div>
+      <button data-dir="down">▼</button>
+    </div>`;
+  document.body.appendChild(pad);
+
+  const set = (x: number, y: number) => { input.touch.x = x; input.touch.y = y; };
+  const clear = () => set(0, 0);
+  for (const btn of Array.from(pad.querySelectorAll("button"))) {
+    const dir = (btn as HTMLElement).dataset.dir!;
+    const press = (e: Event) => {
+      e.preventDefault();
+      if (dir === "left") set(-1, 0);
+      else if (dir === "right") set(1, 0);
+      else if (dir === "up") set(0, -1);
+      else if (dir === "down") set(0, 1);
+      else if (dir === "start") start();
+    };
+    btn.addEventListener("pointerdown", press);
+    btn.addEventListener("pointerup", clear);
+    btn.addEventListener("pointerleave", clear);
+    btn.addEventListener("pointercancel", clear);
   }
-  // start (green) / goal (red) cell markers
-  const mark = (cell: [number, number], color: string) => {
-    const [c, r] = cell;
-    ctx.fillStyle = color;
-    ctx.fillRect((c - CROP_LEFT) * TILE + 2, r * TILE + 2, TILE - 4, TILE - 4);
-  };
-  mark(maze.goal, "#ff2020");
-  mark(maze.start, "#36e000");
 }
-
-// Cycle mazes every few seconds so all three are visible.
-let t = 0;
-function update(dt: number) {
-  t += dt;
-  mazeIndex = Math.floor(t / 2.5) % MAZES.length;
-}
-
-function render() {
-  ctx.fillStyle = "#000";
-  ctx.fillRect(0, 0, SCREEN_W, SCREEN_H);
-  drawMaze(mazeIndex);
-  // tiny index label dots top-left
-  for (let i = 0; i < MAZES.length; i++) {
-    ctx.fillStyle = i === mazeIndex ? "#ffe000" : "#444";
-    ctx.fillRect(2 + i * 5, 2, 3, 3);
-  }
-  void COLS;
-}
-
-startLoop(update, render);

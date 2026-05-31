@@ -23,3 +23,34 @@ canvas {
   image-rendering: crisp-edges;
   background: #000;
 }
+
+/* On-screen touch controls — only shown on coarse-pointer (touch) devices. */
+.touch {
+  display: none;
+}
+@media (pointer: coarse) {
+  .touch {
+    display: block;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: env(safe-area-inset-bottom, 12px);
+    text-align: center;
+    user-select: none;
+    touch-action: none;
+  }
+  .dpad button {
+    width: 56px;
+    height: 56px;
+    margin: 3px;
+    font-size: 20px;
+    color: #0ff;
+    background: rgba(0, 40, 48, 0.6);
+    border: 1px solid #066;
+    border-radius: 10px;
+  }
+  .dpad button:active { background: rgba(0, 90, 110, 0.85); }
+  .dpad-mid { display: flex; justify-content: center; gap: 56px; }
+  .dpad .start { color: #fe0; border-color: #660; font-size: 16px; }
+}
+

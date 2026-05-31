@@ -33,15 +33,15 @@ export function loadMaze(index: number): PlayMaze {
     }
   }
   // Clear a small pocket around START/GOAL so the balloon can spawn/finish there.
-  const clear = (cell: [number, number]) => {
+  const clear = (cell: [number, number], drLo = -1, drHi = 1) => {
     const [cc, rr] = cell;
-    for (let dr = -1; dr <= 1; dr++)
+    for (let dr = drLo; dr <= drHi; dr++)
       for (let dc = -2; dc <= 2; dc++) {
         const c = cc + dc, r = rr + dr;
         if (c >= 0 && c < MAZE_N && r >= 0 && r < MAZE_N) lethal[r * MAZE_N + c] = 0;
       }
   };
-  clear(raw.start);
+  clear(raw.start, -1, 3); // extra room below START for the string + box (whole-rig collision)
   clear(raw.goal);
 
   // GOAL zone: a square around the GOAL marker. Reaching any cell inside wins.
@@ -88,6 +88,19 @@ export function balloonHits(maze: PlayMaze, cx: number, cy: number, r: number): 
       const dx = cx - nx, dy = cy - ny;
       if (dx * dx + dy * dy < r * r) return true;
     }
+  }
+  return false;
+}
+
+/** Sample a line segment (the string) and test each point against thorns. */
+export function segmentHits(
+  maze: PlayMaze, x0: number, y0: number, x1: number, y1: number, r: number,
+): boolean {
+  const dist = Math.hypot(x1 - x0, y1 - y0);
+  const steps = Math.max(1, Math.ceil(dist / 3));
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    if (balloonHits(maze, x0 + (x1 - x0) * t, y0 + (y1 - y0) * t, r)) return true;
   }
   return false;
 }

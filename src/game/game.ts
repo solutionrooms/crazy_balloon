@@ -6,7 +6,7 @@ import {
 import { chars } from "../gfx/tiles";
 import { MAZES, MAZE_N, SPACE_TILE, FILLER_TILE } from "../levels/mazes";
 import {
-  loadMaze, balloonHits, genSpikes, spikePos, MAZE_COUNT,
+  loadMaze, balloonHits, segmentHits, genSpikes, spikePos, MAZE_COUNT,
   type PlayMaze, type Spike,
 } from "./maze";
 import { Input } from "./input";
@@ -54,6 +54,7 @@ export class Game {
   private phase = 0;                  // swing phase
   private timer = 0;                  // state transition timer
   private beepCooldown = 0;
+  private goalArmed = false;          // must leave the goal zone before it can win
   private paused = false;
   private menu = false;               // settings overlay open
   private menuIndex = 0;
@@ -88,6 +89,7 @@ export class Game {
     this.px = this.maze.start.x;
     this.py = this.maze.start.y;
     this.phase = 0;
+    this.goalArmed = false;
   }
 
   private swingAmp() { return this.s("swingAmp") + this.loop * SWING_AMP_PER_LOOP; }
@@ -212,12 +214,17 @@ export class Game {
 
     const r = this.radius();
     const bp = this.balloonPos();
+    const boxX = this.px, boxY = this.py + this.s("stringLen"); // anchor/handle below
+    // moving spikes vs the rig (balloon or box)
     for (const sp of this.spikes) {
       sp.t += dt;
       const p = spikePos(sp);
-      if (Math.hypot(bp.x - p.x, bp.y - p.y) < r + 3) { this.die(); return; }
+      if (Math.hypot(bp.x - p.x, bp.y - p.y) < r + 3 ||
+          Math.hypot(boxX - p.x, boxY - p.y) < 5) { this.die(); return; }
     }
-    if (balloonHits(this.maze, bp.x, bp.y, r)) { this.die(); return; }
+    // thorns/walls vs the WHOLE rig: balloon (full radius) + string + box
+    if (balloonHits(this.maze, bp.x, bp.y, r) ||
+        segmentHits(this.maze, boxX, boxY, bp.x, bp.y, 2)) { this.die(); return; }
 
     // proximity beeping as you near the GOAL
     const gd = Math.hypot(bp.x - this.maze.goal.x, bp.y - this.maze.goal.y);
@@ -226,10 +233,13 @@ export class Game {
       this.audio.beep();
       this.beepCooldown = 0.12 + (gd / (TILE * 5)) * 0.5;
     }
-    // reached anywhere in the GOAL zone -> maze complete
+    // reached anywhere in the GOAL zone -> maze complete (must have left it first,
+    // so spawning next to the goal — e.g. maze 1's enclosure — doesn't auto-win)
     const bc = Math.floor(bp.x / TILE), br = Math.floor(bp.y / TILE);
     const gz = this.maze.goalZone;
-    if (bc >= gz.c0 && bc <= gz.c1 && br >= gz.r0 && br <= gz.r1) {
+    const inGoal = bc >= gz.c0 && bc <= gz.c1 && br >= gz.r0 && br <= gz.r1;
+    if (gd > TILE * 5) this.goalArmed = true; // travelled well clear of the goal
+    if (inGoal && this.goalArmed) {
       this.score += GOAL_BONUS;
       if (this.score > this.hi) this.hi = this.score;
       this.audio.goal();

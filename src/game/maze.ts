@@ -53,6 +53,16 @@ export function loadMaze(index: number): PlayMaze {
   };
 }
 
+/** Clear a small pocket of lethal cells around a pixel position (spawn safety). */
+export function clearAround(maze: PlayMaze, px: number, py: number, rc = 1, rr = 1) {
+  const cc = Math.floor(px / TILE), cr = Math.floor(py / TILE);
+  for (let dr = -rr; dr <= rr; dr++)
+    for (let dc = -rc; dc <= rc; dc++) {
+      const c = cc + dc, r = cr + dr;
+      if (c >= 0 && c < MAZE_N && r >= 0 && r < MAZE_N) maze.lethal[r * MAZE_N + c] = 0;
+    }
+}
+
 /** Circle-vs-lethal-tiles test for the balloon. */
 export function balloonHits(maze: PlayMaze, cx: number, cy: number, r: number): boolean {
   const c0 = Math.max(0, Math.floor((cx - r) / TILE));

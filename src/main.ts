@@ -29,8 +29,9 @@ canvas.addEventListener("pointerdown", (e) => {
 });
 
 if (location.search.includes("play")) {
-  const m = location.search.match(/phase=([\d.]+)/);
-  (game as any).debugPlay(m ? parseFloat(m[1]) : 0);
+  const ph = location.search.match(/phase=([\d.]+)/);
+  const st = location.search.match(/stage=([\d]+)/);
+  (game as any).debugPlay(ph ? parseFloat(ph[1]) : 0, st ? parseInt(st[1]) : 1);
 }
 if (location.search.includes("menu")) game.toggleMenu();
 

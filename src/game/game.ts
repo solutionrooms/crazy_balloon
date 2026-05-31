@@ -6,7 +6,7 @@ import {
 import { chars } from "../gfx/tiles";
 import { MAZES, MAZE_N, SPACE_TILE, FILLER_TILE } from "../levels/mazes";
 import {
-  loadMaze, balloonHits, genSpikes, spikePos, MAZE_COUNT,
+  loadMaze, balloonHits, genSpikes, spikePos, clearAround, MAZE_COUNT,
   type PlayMaze, type Spike,
 } from "./maze";
 import { Input } from "./input";
@@ -68,8 +68,18 @@ export class Game {
   }
 
   private spawn() {
-    this.px = this.maze.start.x;
-    this.py = this.maze.start.y;
+    // Drop the balloon into the open lane just inside the START opening rather
+    // than on the marker — nudge toward the maze interior (works whichever edge
+    // START is on), then guarantee the spawn cell is safe.
+    const b = this.maze.bounds;
+    const cx = (b.x0 + b.x1) / 2, cy = (b.y0 + b.y1) / 2;
+    const sx = this.maze.start.x, sy = this.maze.start.y;
+    const dx = cx - sx, dy = cy - sy;
+    const d = Math.hypot(dx, dy) || 1;
+    const off = 13;
+    this.px = Math.max(b.x0, Math.min(b.x1, sx + (dx / d) * off));
+    this.py = Math.max(b.y0, Math.min(b.y1, sy + (dy / d) * off));
+    clearAround(this.maze, this.px, this.py, 1, 1);
     this.phase = 0;
     this.idle = 0;
     this.blowing = false;
@@ -83,7 +93,8 @@ export class Game {
    * control point (px,py) is the rest position (top of the arc). */
   private balloonPos() {
     const L = this.s("stringLen");
-    const thetaMax = Math.asin(Math.min(0.98, this.swingAmp() / Math.max(1, L)));
+    // tilt from amplitude/string length, hard-capped at 45 degrees each way
+    const thetaMax = Math.min(Math.PI / 4, Math.asin(Math.min(0.98, this.swingAmp() / Math.max(1, L))));
     const theta = thetaMax * Math.sin((this.phase / this.s("swingPeriod")) * Math.PI * 2);
     return { x: this.px + L * Math.sin(theta), y: this.py + L * (1 - Math.cos(theta)) };
   }
@@ -151,8 +162,14 @@ export class Game {
   /** Toggle the settings menu (used by the on-screen gear button). */
   toggleMenu() { this.menu = !this.menu; this.audio.unlock(); }
 
-  /** Debug/screenshot helper: jump straight into play at a given swing phase. */
-  debugPlay(phase = 0) { this.begin(); this.state = "play"; this.phase = phase; }
+  /** Debug/screenshot helper: jump straight into play at a given stage + phase. */
+  debugPlay(phase = 0, stage = 1) {
+    this.begin();
+    this.stage = stage;
+    this.loadStage();
+    this.state = "play";
+    this.phase = phase;
+  }
 
   /** Pointer (mouse/touch) in internal canvas coords — drives the menu. */
   handlePointer(x: number, y: number) {

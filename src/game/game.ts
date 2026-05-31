@@ -6,7 +6,7 @@ import {
 import { chars } from "../gfx/tiles";
 import { MAZES, MAZE_N, SPACE_TILE, FILLER_TILE } from "../levels/mazes";
 import {
-  loadMaze, balloonHits, segmentHits, genSpikes, spikePos, MAZE_COUNT,
+  loadMaze, balloonHits, segmentHits, spikeHitsDisc, genSpikes, spikePos, MAZE_COUNT,
   type PlayMaze, type Spike,
 } from "./maze";
 import { Input } from "./input";
@@ -219,12 +219,13 @@ export class Game {
     for (const sp of this.spikes) {
       sp.t += dt;
       const p = spikePos(sp);
-      if (Math.hypot(bp.x - p.x, bp.y - p.y) < r + 3 ||
-          Math.hypot(boxX - p.x, boxY - p.y) < 5) { this.die(); return; }
+      if (spikeHitsDisc(p.x, p.y, bp.x, bp.y, r) ||
+          spikeHitsDisc(p.x, p.y, boxX, boxY, 2)) { this.die(); return; }
     }
-    // thorns/walls vs the WHOLE rig: balloon (full radius) + string + box
+    // pixel-perfect vs the WHOLE rig: balloon disc + string line + box
     if (balloonHits(this.maze, bp.x, bp.y, r) ||
-        segmentHits(this.maze, boxX, boxY, bp.x, bp.y, 2)) { this.die(); return; }
+        segmentHits(this.maze, boxX, boxY, bp.x, bp.y) ||
+        balloonHits(this.maze, boxX, boxY, 2)) { this.die(); return; }
 
     // proximity beeping as you near the GOAL
     const gd = Math.hypot(bp.x - this.maze.goal.x, bp.y - this.maze.goal.y);

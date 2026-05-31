@@ -78,9 +78,14 @@ export class Game {
   private swingAmp() { return this.s("swingAmp") + this.loop * SWING_AMP_PER_LOOP; }
   private moveSpeed() { return this.s("moveSpeed") + this.loop * MOVE_SPEED_PER_LOOP; }
 
+  /** Balloon swings as a pendulum on a string of length L from the box below it,
+   * tracing an arc (and dipping at the extremes) rather than a flat line. The
+   * control point (px,py) is the rest position (top of the arc). */
   private balloonPos() {
-    const sx = Math.sin((this.phase / this.s("swingPeriod")) * Math.PI * 2) * this.swingAmp();
-    return { x: this.px + sx, y: this.py };
+    const L = this.s("stringLen");
+    const thetaMax = Math.asin(Math.min(0.98, this.swingAmp() / Math.max(1, L)));
+    const theta = thetaMax * Math.sin((this.phase / this.s("swingPeriod")) * Math.PI * 2);
+    return { x: this.px + L * Math.sin(theta), y: this.py + L * (1 - Math.cos(theta)) };
   }
 
   // ---------------- update ----------------
@@ -145,6 +150,9 @@ export class Game {
 
   /** Toggle the settings menu (used by the on-screen gear button). */
   toggleMenu() { this.menu = !this.menu; this.audio.unlock(); }
+
+  /** Debug/screenshot helper: jump straight into play at a given swing phase. */
+  debugPlay(phase = 0) { this.begin(); this.state = "play"; this.phase = phase; }
 
   /** Pointer (mouse/touch) in internal canvas coords — drives the menu. */
   handlePointer(x: number, y: number) {
@@ -261,14 +269,19 @@ export class Game {
 
   private drawBalloon(ctx: CanvasRenderingContext2D) {
     const bp = this.balloonPos();
+    const boxX = Math.round(this.px);
+    const boxY = Math.round(this.py + this.s("stringLen")); // pivot/handle below
+    // string from balloon down to the box
     ctx.strokeStyle = PALETTE.white;
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(Math.round(bp.x) + 0.5, Math.round(bp.y) + 0.5);
-    ctx.lineTo(Math.round(this.px) + 0.5, Math.round(this.py + 6) + 0.5);
+    ctx.lineTo(boxX + 0.5, boxY + 0.5);
     ctx.stroke();
+    // box (the player's handle / anchor)
     ctx.fillStyle = PALETTE.white;
-    ctx.fillRect(Math.round(this.px) - 1, Math.round(this.py + 6), 3, 3);
+    ctx.fillRect(boxX - 1, boxY - 1, 3, 3);
+    // balloon
     ctx.fillStyle = this.blowing ? PALETTE.yellow : PALETTE.red;
     ctx.beginPath();
     ctx.arc(bp.x, bp.y, this.radius() + 0.7, 0, Math.PI * 2);

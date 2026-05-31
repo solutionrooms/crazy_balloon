@@ -28,7 +28,10 @@ canvas.addEventListener("pointerdown", (e) => {
   game.handlePointer(x, y);
 });
 
-if (location.search.includes("play")) (game as any).begin();
+if (location.search.includes("play")) {
+  const m = location.search.match(/phase=([\d.]+)/);
+  (game as any).debugPlay(m ? parseFloat(m[1]) : 0);
+}
 if (location.search.includes("menu")) game.toggleMenu();
 
 buildControls(input, game);

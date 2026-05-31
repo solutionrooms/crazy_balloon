@@ -15,6 +15,7 @@ export interface SettingDef {
 
 export const DEFAULTS: SettingDef[] = [
   { key: "swingAmp", label: "SWING AMPLITUDE", def: 14, min: 0, max: 28, step: 1 },
+  { key: "stringLen", label: "STRING LENGTH", def: 16, min: 8, max: 40, step: 1 },
   { key: "swingPeriod", label: "SWING PERIOD", def: 1.5, min: 0.4, max: 3.0, step: 0.1, decimals: 1 },
   { key: "moveSpeed", label: "MOVE SPEED", def: 46, min: 16, max: 110, step: 2 },
   { key: "balloonSize", label: "BALLOON SIZE", def: 3.3, min: 1.5, max: 6.0, step: 0.1, decimals: 1 },

@@ -1,0 +1,17 @@
+{
+  "name": "crazy-balloon",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "description": "Faithful browser recreation of Taito's 1980 Crazy Balloon, built from the original ROM.",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "gfx": "python3 tools/export_tiles.py"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3",
+    "vite": "^5.4.10"
+  }
+}

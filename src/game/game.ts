@@ -219,14 +219,17 @@ export class Game {
     }
     if (balloonHits(this.maze, bp.x, bp.y, r)) { this.die(); return; }
 
-    const gx = this.maze.goal.x, gy = this.maze.goal.y;
-    const gd = Math.hypot(bp.x - gx, bp.y - gy);
+    // proximity beeping as you near the GOAL
+    const gd = Math.hypot(bp.x - this.maze.goal.x, bp.y - this.maze.goal.y);
     this.beepCooldown -= dt;
     if (gd < TILE * 5 && this.beepCooldown <= 0) {
       this.audio.beep();
       this.beepCooldown = 0.12 + (gd / (TILE * 5)) * 0.5;
     }
-    if (gd < TILE * 1.1) {
+    // reached anywhere in the GOAL zone -> maze complete
+    const bc = Math.floor(bp.x / TILE), br = Math.floor(bp.y / TILE);
+    const gz = this.maze.goalZone;
+    if (bc >= gz.c0 && bc <= gz.c1 && br >= gz.r0 && br <= gz.r1) {
       this.score += GOAL_BONUS;
       if (this.score > this.hi) this.hi = this.score;
       this.audio.goal();

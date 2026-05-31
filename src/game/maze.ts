@@ -7,6 +7,8 @@ export interface PlayMaze {
   lethal: Uint8Array; // MAZE_N*MAZE_N, 1 = pops the balloon
   start: { x: number; y: number };
   goal: { x: number; y: number };
+  /** GOAL is a zone (cell bounds): reaching any cell inside completes the maze. */
+  goalZone: { c0: number; r0: number; c1: number; r1: number };
   bounds: { x0: number; y0: number; x1: number; y1: number }; // px, interior
 }
 
@@ -42,12 +44,20 @@ export function loadMaze(index: number): PlayMaze {
   clear(raw.start);
   clear(raw.goal);
 
+  // GOAL zone: a square around the GOAL marker. Reaching any cell inside wins.
+  const GZ = 2; // half-size in tiles (5x5 square)
+  const goalZone = {
+    c0: Math.max(0, raw.goal[0] - GZ), r0: Math.max(0, raw.goal[1] - GZ),
+    c1: Math.min(MAZE_N - 1, raw.goal[0] + GZ), r1: Math.min(MAZE_N - 1, raw.goal[1] + GZ),
+  };
+
   const ctr = (cell: [number, number]) => ({ x: cell[0] * TILE + TILE / 2, y: cell[1] * TILE + TILE / 2 });
   return {
     raw,
     lethal,
     start: ctr(raw.start),
     goal: ctr(raw.goal),
+    goalZone,
     // keep the balloon just inside the border rectangle
     bounds: { x0: (minC + 1) * TILE, y0: (minR + 1) * TILE, x1: (maxC) * TILE, y1: (maxR) * TILE },
   };

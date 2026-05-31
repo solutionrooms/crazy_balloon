@@ -179,8 +179,9 @@ export class Game {
     const d = this.input.dir();
     const moving = d.x !== 0 || d.y !== 0;
     if (moving) {
-      this.px += d.x * this.moveSpeed() * dt;
-      this.py += d.y * this.moveSpeed() * dt;
+      const mag = Math.hypot(d.x, d.y) || 1; // normalize so diagonals aren't faster
+      this.px += (d.x / mag) * this.moveSpeed() * dt;
+      this.py += (d.y / mag) * this.moveSpeed() * dt;
       this.idle = 0;
       this.blowing = false;
     } else {

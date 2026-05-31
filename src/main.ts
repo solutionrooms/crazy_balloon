@@ -34,6 +34,7 @@ if (location.search.includes("play")) {
   (game as any).debugPlay(ph ? parseFloat(ph[1]) : 0, st ? parseInt(st[1]) : 1);
 }
 if (location.search.includes("menu")) game.toggleMenu();
+if (location.search.includes("touch")) document.body.classList.add("show-touch");
 
 buildControls(input, game);
 
@@ -42,7 +43,8 @@ startLoop(
   () => game.render(ctx),
 );
 
-/** On-screen gear (settings) button + D-pad for touch devices. */
+/** On-screen gear (settings), virtual joystick (8-way incl. diagonals), and a
+ * GO/start button — shown on touch devices. */
 function buildControls(input: Input, game: Game) {
   const gear = document.createElement("button");
   gear.className = "gear";
@@ -51,34 +53,41 @@ function buildControls(input: Input, game: Game) {
   gear.addEventListener("pointerdown", (e) => { e.preventDefault(); game.toggleMenu(); });
   document.body.appendChild(gear);
 
-  const pad = document.createElement("div");
-  pad.className = "touch";
-  pad.innerHTML = `
-    <div class="dpad">
-      <button data-dir="up">▲</button>
-      <div class="dpad-mid">
-        <button data-dir="left">◀</button>
-        <button data-dir="start" class="start">GO</button>
-        <button data-dir="right">▶</button>
-      </div>
-      <button data-dir="down">▼</button>
-    </div>`;
-  document.body.appendChild(pad);
+  const wrap = document.createElement("div");
+  wrap.className = "touch";
+  wrap.innerHTML = `<div class="stick"><div class="knob"></div></div><button class="gobtn">GO</button>`;
+  document.body.appendChild(wrap);
 
-  const set = (x: number, y: number) => { input.touch.x = x; input.touch.y = y; };
-  const clear = () => set(0, 0);
-  for (const btn of Array.from(pad.querySelectorAll("button"))) {
-    const dir = (btn as HTMLElement).dataset.dir!;
-    btn.addEventListener("pointerdown", (e) => {
-      e.preventDefault();
-      if (dir === "left") set(-1, 0);
-      else if (dir === "right") set(1, 0);
-      else if (dir === "up") set(0, -1);
-      else if (dir === "down") set(0, 1);
-      else if (dir === "start") (game as any).begin();
-    });
-    btn.addEventListener("pointerup", clear);
-    btn.addEventListener("pointerleave", clear);
-    btn.addEventListener("pointercancel", clear);
-  }
+  const go = wrap.querySelector(".gobtn") as HTMLButtonElement;
+  go.addEventListener("pointerdown", (e) => { e.preventDefault(); (game as any).begin(); });
+
+  // Virtual joystick: drag from the pad centre; 8-way with a small dead-zone so
+  // a diagonal drag moves diagonally.
+  const stick = wrap.querySelector(".stick") as HTMLElement;
+  const knob = wrap.querySelector(".knob") as HTMLElement;
+  const RADIUS = 42, DEAD = 11;
+  let active = false, ox = 0, oy = 0;
+
+  const move = (e: PointerEvent) => {
+    let dx = e.clientX - ox, dy = e.clientY - oy;
+    const mag = Math.hypot(dx, dy);
+    const clamp = mag > RADIUS ? RADIUS / mag : 1;
+    knob.style.transform = `translate(${dx * clamp}px, ${dy * clamp}px)`;
+    input.touch.x = Math.abs(dx) > DEAD ? Math.sign(dx) : 0;
+    input.touch.y = Math.abs(dy) > DEAD ? Math.sign(dy) : 0;
+  };
+  const end = () => { active = false; input.touch.x = 0; input.touch.y = 0; knob.style.transform = ""; };
+
+  stick.addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    active = true;
+    stick.setPointerCapture(e.pointerId);
+    const r = stick.getBoundingClientRect();
+    ox = r.left + r.width / 2;
+    oy = r.top + r.height / 2;
+    move(e);
+  });
+  stick.addEventListener("pointermove", (e) => { if (active) move(e); });
+  stick.addEventListener("pointerup", end);
+  stick.addEventListener("pointercancel", end);
 }

@@ -19,8 +19,6 @@ export const DEFAULTS: SettingDef[] = [
   { key: "swingPeriod", label: "SWING PERIOD", def: 1.5, min: 0.4, max: 3.0, step: 0.1, decimals: 1 },
   { key: "moveSpeed", label: "MOVE SPEED", def: 46, min: 16, max: 110, step: 2 },
   { key: "balloonSize", label: "BALLOON SIZE", def: 3.3, min: 1.5, max: 6.0, step: 0.1, decimals: 1 },
-  { key: "blowerDelay", label: "BLOWER DELAY", def: 4, min: 1, max: 12, step: 0.5, decimals: 1 },
-  { key: "blowerPush", label: "BLOWER PUSH", def: 14, min: 0, max: 48, step: 2 },
   { key: "startLives", label: "START LIVES", def: 3, min: 1, max: 9, step: 1 },
 ];
 

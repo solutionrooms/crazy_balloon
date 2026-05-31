@@ -1,7 +1,7 @@
 import {
   SCREEN_W, SCREEN_H, TILE, CROP_LEFT_COLS, GOAL_BONUS, PROGRESS_POINTS,
   PALETTE, EXTRA_LIFE_SCORE, READY_SEC,
-  SWING_AMP_PER_LOOP, MOVE_SPEED_PER_LOOP, SPIKE_SPEED_BASE,
+  SWING_AMP_PER_LOOP, MOVE_SPEED_PER_LOOP, SPIKE_SPEED_BASE, type ColorName,
 } from "../engine/constants";
 import { chars } from "../gfx/tiles";
 import { MAZES, MAZE_N, SPACE_TILE, FILLER_TILE } from "../levels/mazes";
@@ -20,6 +20,23 @@ const XOFF = -CROP_LEFT_COLS * TILE; // render translate for the visible window
 // Settings-menu layout (shared by render + pointer hit-testing).
 const MENU_Y0 = 46, MENU_ROWH = 16, MENU_MINUS = 150, MENU_VAL = 164, MENU_PLUS = 196;
 
+// Crazy Balloon color-RAM palette index (low nibble) -> our colour. Derived from
+// the ROM colour data + the arcade reference (1=cyan thorns, 2=magenta, 5/6=green,
+// 4=red goal). Tunable as we compare against the original.
+const COLOR_PALETTE: ColorName[] = [
+  "cyan",    // 0
+  "cyan",    // 1  cyan thorns (most of the maze)
+  "magenta", // 2  magenta thorns
+  "magenta", // 3
+  "red",     // 4
+  "green",   // 5  green thorns + START bar
+  "red",     // 6  GOAL bar
+  "yellow",  // 7
+  "white",   // 8
+  "white",   // 9
+  "white", "white", "white", "white", "white", "white", // 10-15
+];
+
 export class Game {
   private state: State = "title";
   private level = 0;                  // maze index 0..2
@@ -35,9 +52,7 @@ export class Game {
   private visited = new Set<number>();
   private px = 0; private py = 0;     // anchor (player-controlled) position
   private phase = 0;                  // swing phase
-  private idle = 0;                   // idle seconds (for blower)
   private timer = 0;                  // state transition timer
-  private blowing = false;
   private beepCooldown = 0;
   private paused = false;
   private menu = false;               // settings overlay open
@@ -73,8 +88,6 @@ export class Game {
     this.px = this.maze.start.x;
     this.py = this.maze.start.y;
     this.phase = 0;
-    this.idle = 0;
-    this.blowing = false;
   }
 
   private swingAmp() { return this.s("swingAmp") + this.loop * SWING_AMP_PER_LOOP; }
@@ -182,15 +195,6 @@ export class Game {
       const mag = Math.hypot(d.x, d.y) || 1; // normalize so diagonals aren't faster
       this.px += (d.x / mag) * this.moveSpeed() * dt;
       this.py += (d.y / mag) * this.moveSpeed() * dt;
-      this.idle = 0;
-      this.blowing = false;
-    } else {
-      this.idle += dt;
-      if (this.idle > this.s("blowerDelay")) {
-        if (!this.blowing) this.audio.blower();
-        this.blowing = true;
-        this.py += this.s("blowerPush") * dt; // blower nudges the balloon into danger
-      }
     }
     const b = this.maze.bounds;
     this.px = Math.max(b.x0, Math.min(b.x1, this.px));
@@ -260,12 +264,13 @@ export class Game {
 
   private drawMaze(ctx: CanvasRenderingContext2D) {
     const m = this.maze.raw;
-    const theme = this.theme();
     for (let r = 0; r < MAZE_N; r++) {
       for (let c = 0; c < MAZE_N; c++) {
-        const t = m.tiles[r * MAZE_N + c];
+        const i = r * MAZE_N + c;
+        const t = m.tiles[i];
         if (t === SPACE_TILE || t === FILLER_TILE) continue;
-        chars.draw(ctx, t, theme, c * TILE, r * TILE);
+        const color = COLOR_PALETTE[m.colors[i]] ?? this.theme();
+        chars.draw(ctx, t, color, c * TILE, r * TILE);
       }
     }
   }
@@ -292,7 +297,7 @@ export class Game {
     ctx.fillStyle = PALETTE.white;
     ctx.fillRect(boxX - 1, boxY - 1, 3, 3);
     // balloon
-    ctx.fillStyle = this.blowing ? PALETTE.yellow : PALETTE.red;
+    ctx.fillStyle = PALETTE.red;
     ctx.beginPath();
     ctx.arc(bp.x, bp.y, this.radius() + 0.7, 0, Math.PI * 2);
     ctx.fill();

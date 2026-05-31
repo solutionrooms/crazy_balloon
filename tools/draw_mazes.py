@@ -124,6 +124,9 @@ def main() -> int:
         print(f"maze {idx} (sub-table ${ptr:04X}): returned={ok} non-blank={nb} "
               f"top={','.join(f'{t:02X}:{c}' for t, c in hist.most_common(5) if t)}")
         (ROOT / "reference" / f"base_maze{idx}.bin").write_bytes(vram)
+        # parallel Color RAM (0x5000) — low nibble of each byte is the palette index
+        cram = bytes(cpu.m[0x5000:0x5000 + VLEN])
+        (ROOT / "reference" / f"base_maze{idx}_color.bin").write_bytes(cram)
         render(rotate(grid_of(vram), "ccw"), ROOT / "reference" / f"base_maze{idx}.png")
     print("wrote reference/base_maze{0,1,2}.png + .bin")
     return 0

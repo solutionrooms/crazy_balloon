@@ -73,3 +73,49 @@ export function balloonHits(maze: PlayMaze, cx: number, cy: number, r: number): 
 }
 
 export const MAZE_COUNT = MAZES.length;
+
+/** A thorn that oscillates horizontally between cols c0..c1 on row r. */
+export interface Spike {
+  r: number; c0: number; c1: number; t: number; period: number;
+}
+
+/** Deterministically place `count` moving spikes in roomy open horizontal runs,
+ * away from START/GOAL. Returns [] for count<=0. */
+export function genSpikes(maze: PlayMaze, count: number, speedCellsPerSec: number): Spike[] {
+  if (count <= 0) return [];
+  const { lethal } = maze;
+  const sCell = maze.raw.start, gCell = maze.raw.goal;
+  const far = (c: number, r: number) =>
+    Math.abs(c - sCell[0]) + Math.abs(r - sCell[1]) > 3 &&
+    Math.abs(c - gCell[0]) + Math.abs(r - gCell[1]) > 3;
+
+  const runs: Array<{ r: number; c0: number; c1: number }> = [];
+  for (let r = 2; r < MAZE_N - 2; r++) {
+    let c = 0;
+    while (c < MAZE_N) {
+      if (lethal[r * MAZE_N + c]) { c++; continue; }
+      let e = c;
+      while (e < MAZE_N && !lethal[r * MAZE_N + e]) e++;
+      if (e - c >= 5 && far(c, r) && far(e - 1, r)) {
+        runs.push({ r, c0: c + 1, c1: e - 2 }); // keep 1-cell pad from walls
+      }
+      c = e;
+    }
+  }
+  // spread picks across the run list deterministically
+  const spikes: Spike[] = [];
+  for (let i = 0; i < count && runs.length; i++) {
+    const run = runs[Math.floor((i * 0.618 + 0.13) * runs.length) % runs.length];
+    const span = Math.max(2, run.c1 - run.c0);
+    const period = (span / speedCellsPerSec) * 2; // there-and-back
+    spikes.push({ r: run.r, c0: run.c0, c1: run.c0 + span, t: i * 0.4, period });
+  }
+  return spikes;
+}
+
+/** Current pixel centre of a moving spike at its phase. */
+export function spikePos(s: Spike): { x: number; y: number } {
+  const u = 0.5 - 0.5 * Math.cos((s.t / s.period) * Math.PI * 2);
+  const col = s.c0 + (s.c1 - s.c0) * u;
+  return { x: col * TILE + TILE / 2, y: s.r * TILE + TILE / 2 };
+}

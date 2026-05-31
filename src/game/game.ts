@@ -1,7 +1,6 @@
 import {
-  SCREEN_W, SCREEN_H, TILE, CROP_LEFT_COLS, BALLOON_RADIUS, SWING_AMPLITUDE_PX,
-  SWING_PERIOD_SEC, MOVE_SPEED_PX, START_LIVES, GOAL_BONUS, PROGRESS_POINTS,
-  BLOWER_IDLE_SEC, BLOWER_PUSH_PX, PALETTE, EXTRA_LIFE_SCORE, READY_SEC,
+  SCREEN_W, SCREEN_H, TILE, CROP_LEFT_COLS, GOAL_BONUS, PROGRESS_POINTS,
+  PALETTE, EXTRA_LIFE_SCORE, READY_SEC,
   SWING_AMP_PER_LOOP, MOVE_SPEED_PER_LOOP, SPIKE_SPEED_BASE,
 } from "../engine/constants";
 import { chars } from "../gfx/tiles";
@@ -12,24 +11,27 @@ import {
 } from "./maze";
 import { Input } from "./input";
 import { Audio } from "./audio";
+import { Settings } from "./settings";
 import { drawText, textWidth } from "./font";
 
 type State = "title" | "ready" | "play" | "clear" | "dead" | "gameover";
 const XOFF = -CROP_LEFT_COLS * TILE; // render translate for the visible window
 
+// Settings-menu layout (shared by render + pointer hit-testing).
+const MENU_Y0 = 46, MENU_ROWH = 16, MENU_MINUS = 150, MENU_VAL = 164, MENU_PLUS = 196;
+
 export class Game {
   private state: State = "title";
   private level = 0;                  // maze index 0..2
   private stage = 1;                  // overall level number (1+)
+  private loop = 0;                   // completed passes through the 3 mazes
   private score = 0;
   private hi = 0;
-  private lives = START_LIVES;
+  private lives = 3;
   private extraLifeGiven = false;
 
   private maze!: PlayMaze;
   private spikes: Spike[] = [];
-  private swingAmp = SWING_AMPLITUDE_PX;
-  private moveSpeed = MOVE_SPEED_PX;
   private visited = new Set<number>();
   private px = 0; private py = 0;     // anchor (player-controlled) position
   private phase = 0;                  // swing phase
@@ -38,25 +40,27 @@ export class Game {
   private blowing = false;
   private beepCooldown = 0;
   private paused = false;
+  private menu = false;               // settings overlay open
+  private menuIndex = 0;
 
-  constructor(private input: Input, private audio: Audio) {
+  constructor(private input: Input, private audio: Audio, private settings: Settings) {
     this.stage = 1;
     this.loadStage();
     this.state = "title";
   }
 
+  private s(key: string) { return this.settings.get(key); }
   private theme() { return MAZES[this.level].theme; }
+  private radius() { return this.s("balloonSize"); }
 
   /** Set up the current stage: pick maze, scale difficulty, place spikes,
    * then show the "LET'S ATTACK" interstitial. */
   private loadStage() {
-    const loop = Math.floor((this.stage - 1) / MAZE_COUNT);
+    this.loop = Math.floor((this.stage - 1) / MAZE_COUNT);
     this.level = (this.stage - 1) % MAZE_COUNT;
     this.maze = loadMaze(this.level);
-    this.swingAmp = SWING_AMPLITUDE_PX + loop * SWING_AMP_PER_LOOP;
-    this.moveSpeed = MOVE_SPEED_PX + loop * MOVE_SPEED_PER_LOOP;
-    const spikeCount = loop <= 0 ? 0 : 1 + loop;
-    this.spikes = genSpikes(this.maze, spikeCount, SPIKE_SPEED_BASE + loop * 0.4);
+    const spikeCount = this.loop <= 0 ? 0 : 1 + this.loop;
+    this.spikes = genSpikes(this.maze, spikeCount, SPIKE_SPEED_BASE + this.loop * 0.4);
     this.visited.clear();
     this.spawn();
     this.state = "ready";
@@ -71,18 +75,25 @@ export class Game {
     this.blowing = false;
   }
 
+  private swingAmp() { return this.s("swingAmp") + this.loop * SWING_AMP_PER_LOOP; }
+  private moveSpeed() { return this.s("moveSpeed") + this.loop * MOVE_SPEED_PER_LOOP; }
+
   private balloonPos() {
-    const sx = Math.sin((this.phase / SWING_PERIOD_SEC) * Math.PI * 2) * this.swingAmp;
+    const sx = Math.sin((this.phase / this.s("swingPeriod")) * Math.PI * 2) * this.swingAmp();
     return { x: this.px + sx, y: this.py };
   }
 
+  // ---------------- update ----------------
   update(dt: number) {
     if (this.input.justPressed("KeyM")) this.audio.toggleMute();
+    if (this.input.justPressed("KeyO")) { this.menu = !this.menu; this.audio.unlock(); }
+    if (this.menu) { this.updateMenu(); this.input.endFrame(); return; }
     if (this.input.justPressed("KeyP") && this.state === "play") this.paused = !this.paused;
     if (this.paused && this.state === "play") { this.input.endFrame(); return; }
+
     switch (this.state) {
       case "title":
-        if (this.input.justPressed("Space")) { this.begin(); }
+        if (this.input.justPressed("Space")) this.begin();
         break;
       case "ready":
         this.timer -= dt;
@@ -103,67 +114,89 @@ export class Game {
         }
         break;
       case "gameover":
-        if (this.input.justPressed("Space")) { this.begin(); }
+        if (this.input.justPressed("Space")) this.begin();
         break;
     }
     this.input.endFrame();
   }
 
+  private updateMenu() {
+    const n = this.settings.defs.length;
+    if (this.input.justPressed("ArrowUp") || this.input.justPressed("KeyW"))
+      this.menuIndex = (this.menuIndex - 1 + n) % n;
+    if (this.input.justPressed("ArrowDown") || this.input.justPressed("KeyS"))
+      this.menuIndex = (this.menuIndex + 1) % n;
+    if (this.input.justPressed("ArrowLeft") || this.input.justPressed("KeyA"))
+      this.settings.adjust(this.menuIndex, -1);
+    if (this.input.justPressed("ArrowRight") || this.input.justPressed("KeyD"))
+      this.settings.adjust(this.menuIndex, +1);
+    if (this.input.justPressed("KeyR")) this.settings.resetAll();
+    if (this.input.justPressed("Escape")) this.menu = false;
+  }
+
   begin() {
     this.audio.unlock();
     this.score = 0;
-    this.lives = START_LIVES;
+    this.lives = this.s("startLives");
     this.extraLifeGiven = false;
     this.stage = 1;
     this.loadStage(); // -> "ready" interstitial
+  }
+
+  /** Toggle the settings menu (used by the on-screen gear button). */
+  toggleMenu() { this.menu = !this.menu; this.audio.unlock(); }
+
+  /** Pointer (mouse/touch) in internal canvas coords — drives the menu. */
+  handlePointer(x: number, y: number) {
+    if (!this.menu) return;
+    const n = this.settings.defs.length;
+    const row = Math.floor((y - MENU_Y0 + 6) / MENU_ROWH);
+    if (row >= 0 && row < n) {
+      this.menuIndex = row;
+      if (x >= MENU_MINUS - 8 && x <= MENU_MINUS + 12) this.settings.adjust(row, -1);
+      else if (x >= MENU_PLUS - 6 && x <= MENU_PLUS + 14) this.settings.adjust(row, +1);
+    }
   }
 
   private updatePlay(dt: number) {
     const d = this.input.dir();
     const moving = d.x !== 0 || d.y !== 0;
     if (moving) {
-      this.px += d.x * this.moveSpeed * dt;
-      this.py += d.y * this.moveSpeed * dt;
+      this.px += d.x * this.moveSpeed() * dt;
+      this.py += d.y * this.moveSpeed() * dt;
       this.idle = 0;
       this.blowing = false;
     } else {
       this.idle += dt;
-      if (this.idle > BLOWER_IDLE_SEC) {
+      if (this.idle > this.s("blowerDelay")) {
         if (!this.blowing) this.audio.blower();
         this.blowing = true;
-        this.py += BLOWER_PUSH_PX * dt; // blower nudges the balloon downward into danger
+        this.py += this.s("blowerPush") * dt; // blower nudges the balloon into danger
       }
     }
-    // keep anchor inside the playfield interior
     const b = this.maze.bounds;
     this.px = Math.max(b.x0, Math.min(b.x1, this.px));
     this.py = Math.max(b.y0, Math.min(b.y1, this.py));
-
     this.phase += dt;
 
-    // score progress for each newly-entered cell
     const cell = Math.floor(this.py / TILE) * MAZE_N + Math.floor(this.px / TILE);
     if (!this.visited.has(cell)) { this.visited.add(cell); this.score += PROGRESS_POINTS; }
 
-    // award the extra balloon once
     if (!this.extraLifeGiven && this.score >= EXTRA_LIFE_SCORE) {
       this.extraLifeGiven = true;
       this.lives += 1;
       this.audio.goal();
     }
 
-    // animate moving spikes and test them too
+    const r = this.radius();
     const bp = this.balloonPos();
-    for (const s of this.spikes) {
-      s.t += dt;
-      const sp = spikePos(s);
-      if (Math.hypot(bp.x - sp.x, bp.y - sp.y) < BALLOON_RADIUS + 3) { this.die(); return; }
+    for (const sp of this.spikes) {
+      sp.t += dt;
+      const p = spikePos(sp);
+      if (Math.hypot(bp.x - p.x, bp.y - p.y) < r + 3) { this.die(); return; }
     }
-    if (balloonHits(this.maze, bp.x, bp.y, BALLOON_RADIUS)) {
-      this.die();
-      return;
-    }
-    // reached goal? (with proximity beeping as you approach)
+    if (balloonHits(this.maze, bp.x, bp.y, r)) { this.die(); return; }
+
     const gx = this.maze.goal.x, gy = this.maze.goal.y;
     const gd = Math.hypot(bp.x - gx, bp.y - gy);
     this.beepCooldown -= dt;
@@ -204,6 +237,7 @@ export class Game {
     }
     this.drawHud(ctx);
     this.drawOverlays(ctx);
+    if (this.menu) this.drawMenu(ctx);
   }
 
   private drawMaze(ctx: CanvasRenderingContext2D) {
@@ -219,16 +253,14 @@ export class Game {
   }
 
   private drawSpikes(ctx: CanvasRenderingContext2D) {
-    for (const s of this.spikes) {
-      const sp = spikePos(s);
-      // draw the thorn glyph centred on the spike position, tinted yellow as a hazard
-      chars.draw(ctx, 0x39, "yellow", Math.round(sp.x - TILE / 2), Math.round(sp.y - TILE / 2));
+    for (const sp of this.spikes) {
+      const p = spikePos(sp);
+      chars.draw(ctx, 0x39, "yellow", Math.round(p.x - TILE / 2), Math.round(p.y - TILE / 2));
     }
   }
 
   private drawBalloon(ctx: CanvasRenderingContext2D) {
     const bp = this.balloonPos();
-    // tether + anchor box
     ctx.strokeStyle = PALETTE.white;
     ctx.lineWidth = 1;
     ctx.beginPath();
@@ -237,10 +269,9 @@ export class Game {
     ctx.stroke();
     ctx.fillStyle = PALETTE.white;
     ctx.fillRect(Math.round(this.px) - 1, Math.round(this.py + 6), 3, 3);
-    // balloon
     ctx.fillStyle = this.blowing ? PALETTE.yellow : PALETTE.red;
     ctx.beginPath();
-    ctx.arc(bp.x, bp.y, BALLOON_RADIUS + 0.7, 0, Math.PI * 2);
+    ctx.arc(bp.x, bp.y, this.radius() + 0.7, 0, Math.PI * 2);
     ctx.fill();
   }
 
@@ -249,9 +280,7 @@ export class Game {
     drawText(ctx, 2, 9, pad(this.score, 6), PALETTE.white, 1);
     const hi = "HI " + pad(this.hi, 6);
     drawText(ctx, SCREEN_W - textWidth(hi, 1) - 2, 1, hi, PALETTE.cyan, 1);
-    drawText(ctx, SCREEN_W - textWidth("LV" + this.stage, 1) - 2, 9,
-      "LV" + this.stage, PALETTE.magenta, 1);
-    // lives as small balloon dots, bottom-left
+    drawText(ctx, SCREEN_W - textWidth("LV" + this.stage, 1) - 2, 9, "LV" + this.stage, PALETTE.magenta, 1);
     for (let i = 0; i < this.lives; i++) {
       ctx.fillStyle = PALETTE.red;
       ctx.beginPath();
@@ -264,10 +293,11 @@ export class Game {
     const center = (text: string, y: number, color: string, scale = 2) =>
       drawText(ctx, (SCREEN_W - textWidth(text, scale)) / 2, y, text, color, scale);
     if (this.state === "title") {
-      center("CRAZY", 70, PALETTE.cyan, 3);
-      center("BALLOON", 100, PALETTE.magenta, 3);
-      center("PRESS SPACE", 160, PALETTE.white, 1);
-      center("ARROWS WASD TO MOVE", 175, PALETTE.green, 1);
+      center("CRAZY", 64, PALETTE.cyan, 3);
+      center("BALLOON", 94, PALETTE.magenta, 3);
+      center("PRESS SPACE", 150, PALETTE.white, 1);
+      center("ARROWS WASD TO MOVE", 165, PALETTE.green, 1);
+      center("O FOR SETTINGS", 180, PALETTE.yellow, 1);
     } else if (this.state === "ready") {
       center("LETS ATTACK !", 96, PALETTE.yellow, 2);
       center("PLAYER 1", 120, PALETTE.cyan, 1);
@@ -284,6 +314,29 @@ export class Game {
     }
     if (this.paused && this.state === "play") center("PAUSED", 120, PALETTE.white, 2);
     if (this.audio.isMuted) drawText(ctx, SCREEN_W - textWidth("MUTE", 1) - 2, SCREEN_H - 7, "MUTE", PALETTE.border, 1);
+  }
+
+  private drawMenu(ctx: CanvasRenderingContext2D) {
+    ctx.fillStyle = "#05080a";
+    ctx.fillRect(0, 0, SCREEN_W, SCREEN_H);
+    drawText(ctx, (SCREEN_W - textWidth("SETTINGS", 2)) / 2, 16, "SETTINGS", PALETTE.cyan, 2);
+    this.settings.defs.forEach((def, i) => {
+      const y = MENU_Y0 + i * MENU_ROWH;
+      const sel = i === this.menuIndex;
+      if (sel) {
+        ctx.fillStyle = "#0a2a30";
+        ctx.fillRect(4, y - 3, SCREEN_W - 8, MENU_ROWH - 3);
+      }
+      drawText(ctx, 8, y, def.label, sel ? PALETTE.yellow : PALETTE.white, 1);
+      drawText(ctx, MENU_MINUS, y, "<", sel ? PALETTE.yellow : PALETTE.cyan, 1);
+      drawText(ctx, MENU_VAL, y, this.settings.display(i).padStart(5), sel ? PALETTE.green : PALETTE.cyan, 1);
+      drawText(ctx, MENU_PLUS, y, ">", sel ? PALETTE.yellow : PALETTE.cyan, 1);
+    });
+    const foot = MENU_Y0 + this.settings.defs.length * MENU_ROWH + 8;
+    const hint = (t: string, y: number) => drawText(ctx, (SCREEN_W - textWidth(t, 1)) / 2, y, t, PALETTE.border, 1);
+    hint("UP/DOWN SELECT", foot);
+    hint("LEFT/RIGHT CHANGE", foot + 10);
+    hint("R RESET   O CLOSE", foot + 20);
   }
 }
 

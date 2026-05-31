@@ -24,6 +24,24 @@ canvas {
   background: #000;
 }
 
+/* Settings gear — always available (click on desktop, tap on mobile). */
+.gear {
+  position: fixed;
+  top: 8px;
+  right: 8px;
+  width: 34px;
+  height: 34px;
+  font-size: 18px;
+  line-height: 1;
+  color: #0ff;
+  background: rgba(0, 40, 48, 0.6);
+  border: 1px solid #066;
+  border-radius: 8px;
+  cursor: pointer;
+  z-index: 10;
+}
+.gear:active { background: rgba(0, 90, 110, 0.85); }
+
 /* On-screen touch controls — only shown on coarse-pointer (touch) devices. */
 .touch {
   display: none;

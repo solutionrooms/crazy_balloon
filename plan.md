@@ -108,10 +108,19 @@ Loose ends before gameplay; all low-risk, mostly tooling already in place.
 |---|---|
 | 0 Scaffold | ✅ done |
 | 1 ROM extraction (gfx + 3 mazes) | ✅ done |
-| 1.5 Data finish + render alignment | ▶ next |
-| 2 Movement/swing/collision | pending |
-| 3 Rules & state machine | pending |
-| 4 All mazes + modifiers | pending |
-| 5 Audio | pending |
-| 6 UI/mobile/polish | pending |
-| 7 Deploy | pending |
+| 1.5 Data finish + render alignment | ✅ done |
+| 2 Movement/swing/collision | ✅ done |
+| 3 Rules & state machine | ✅ done |
+| 4 Level cycle + recolour | ✅ done · moving spikes/scrolling deferred |
+| 5 Audio | ✅ done |
+| 6 UI/mobile/polish | ✅ done |
+| 7 Deploy (GitHub Pages) | ✅ live: solutionrooms.github.io/crazy_balloon |
+
+### Deferred / future refinements
+- **Exact ROM constants**: lives, scoring values, swing amplitude/period, blower
+  timing are currently tuned-to-reference; extract precise values via the emulator.
+- **Moving spikes & scrolling mazes** for the higher difficulty loops (need ROM
+  extraction of those behaviours).
+- **ROM-font HUD**: HUD/overlays use a built-in 3×5 font; could swap to the
+  authentic cl07 glyphs once the charset mapping is decoded.
+- **Workflow**: bump GitHub Actions to Node 24 actions when convenient.

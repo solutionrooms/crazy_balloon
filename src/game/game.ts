@@ -16,8 +16,9 @@ import { Store, Editor, type EditSpike, type MazeEdit } from "./editor";
 import { Net, type NetMsg } from "../net/net";
 import { drawText, textWidth } from "./font";
 
-type State = "title" | "ready" | "play" | "clear" | "dead" | "gameover";
+type State = "title" | "ready" | "play" | "clear" | "dead" | "enter" | "gameover";
 const XOFF = -CROP_LEFT_COLS * TILE; // render translate for the visible window
+const INITIALS_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 ";
 
 interface RaceState {
   net: Net;
@@ -56,6 +57,9 @@ export class Game {
   private beepCooldown = 0;
   private goalArmed = false;          // must leave the goal zone before it can win
   private race: RaceState | null = null;
+  private initials = [0, 0, 0];       // indices into INITIALS_CHARS
+  private initPos = 0;
+  private enterRepeat = 0;            // touch auto-repeat cooldown
   private paused = false;
   private menu = false;               // settings overlay open
   private menuIndex = 0;
@@ -178,6 +182,9 @@ export class Game {
           else { this.spawn(); this.state = "play"; }
         }
         break;
+      case "enter":
+        this.updateEnter(dt);
+        break;
       case "gameover":
         if (this.input.justPressed("Space")) this.begin();
         break;
@@ -210,6 +217,9 @@ export class Game {
 
   /** Toggle the settings menu (used by the on-screen gear button). */
   toggleMenu() { this.menu = !this.menu; this.audio.unlock(); }
+
+  /** Debug/screenshot helper: show the initials-entry screen. */
+  debugEnter() { this.score = 12340; this.initials = [0, 0, 0]; this.initPos = 1; this.state = "enter"; }
 
   /** Debug/screenshot helper: jump straight into play at a given stage + phase. */
   debugPlay(phase = 0, stage = 1) {
@@ -301,17 +311,52 @@ export class Game {
   }
 
   private gameOver() {
-    this.state = "gameover";
     this.timer = 0;
     const cs = this.store.cloudScores;
     const qualifies = this.score > 0 && (cs.length < 10 || this.score > (cs[cs.length - 1]?.score ?? 0));
     if (this.store.cloudOn && qualifies) {
-      const name = (window.prompt("New high score! Enter initials:", "YOU") || "YOU").toUpperCase();
-      void this.store.submitScore(name, this.score);
+      this.initials = [0, 0, 0]; this.initPos = 0; this.enterRepeat = 0;
+      this.state = "enter"; // in-game initials entry
     } else {
       this.store.recordScore(this.score);
+      this.hi = this.store.hiScore;
+      this.state = "gameover";
     }
+  }
+
+  private confirmInitials() {
+    const name = this.initials.map((i) => INITIALS_CHARS[i]).join("").trim() || "YOU";
+    void this.store.submitScore(name, this.score);
     this.hi = this.store.hiScore;
+    this.state = "gameover";
+  }
+
+  private updateEnter(dt: number) {
+    const N = INITIALS_CHARS.length;
+    let up = this.input.justPressed("ArrowUp") || this.input.justPressed("KeyW");
+    let down = this.input.justPressed("ArrowDown") || this.input.justPressed("KeyS");
+    let left = this.input.justPressed("ArrowLeft") || this.input.justPressed("KeyA");
+    let right = this.input.justPressed("ArrowRight") || this.input.justPressed("KeyD");
+    // touch joystick: auto-repeat on a cooldown
+    this.enterRepeat -= dt;
+    const d = this.input.dir();
+    if (!d.x && !d.y) this.enterRepeat = 0;
+    else if (this.enterRepeat <= 0) {
+      if (d.y < 0) up = true; else if (d.y > 0) down = true;
+      if (d.x < 0) left = true; else if (d.x > 0) right = true;
+      this.enterRepeat = 0.2;
+    }
+    if (up) this.initials[this.initPos] = (this.initials[this.initPos] + 1) % N;
+    if (down) this.initials[this.initPos] = (this.initials[this.initPos] - 1 + N) % N;
+    if (left) this.initPos = (this.initPos + 2) % 3;
+    if (right) this.initPos = (this.initPos + 1) % 3;
+    if (this.input.justPressed("Space") || this.input.justPressed("Enter")) this.confirmInitials();
+  }
+
+  /** Context-sensitive primary action for the on-screen GO button. */
+  primaryAction() {
+    if (this.state === "enter") this.confirmInitials();
+    else if (this.state === "title" || this.state === "gameover") this.begin();
   }
 
   private die() {
@@ -462,7 +507,7 @@ export class Game {
     ctx.fillStyle = PALETTE.black;
     ctx.fillRect(0, 0, SCREEN_W, SCREEN_H);
 
-    const onMaze = this.state !== "title" && this.state !== "gameover";
+    const onMaze = this.state !== "title" && this.state !== "gameover" && this.state !== "enter";
     if (onMaze) {
       ctx.save(); ctx.translate(XOFF, 0); this.drawMaze(ctx); ctx.restore();
     }
@@ -555,6 +600,24 @@ export class Game {
       center("MAZE CLEAR", 120, PALETTE.yellow, 2);
     } else if (this.state === "dead") {
       center("POP !", 120, PALETTE.yellow, 2);
+    } else if (this.state === "enter") {
+      center("NEW HIGH SCORE", 44, PALETTE.yellow, 2);
+      center("SCORE " + pad(this.score, 6), 70, PALETTE.white, 1);
+      // three big initials, current slot highlighted with a caret
+      const s = 4, gap = 10, cw = textWidth("A", s);
+      const total = cw * 3 + gap * 2;
+      let x = (SCREEN_W - total) / 2;
+      const y = 100;
+      for (let i = 0; i < 3; i++) {
+        const chr = INITIALS_CHARS[this.initials[i]];
+        const active = i === this.initPos;
+        drawText(ctx, x, y, chr === " " ? "-" : chr, active ? PALETTE.yellow : PALETTE.white, s);
+        if (active) { ctx.fillStyle = PALETTE.yellow; ctx.fillRect(x, y + 5 * s + 3, cw, 2); }
+        x += cw + gap;
+      }
+      center("UP DOWN  CHANGE LETTER", 156, PALETTE.green, 1);
+      center("LEFT RIGHT  MOVE", 168, PALETTE.green, 1);
+      center("SPACE OR GO  CONFIRM", 182, PALETTE.cyan, 1);
     } else if (this.state === "gameover") {
       center("GAME", 70, PALETTE.red, 3);
       center("OVER", 100, PALETTE.red, 3);

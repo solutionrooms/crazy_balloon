@@ -39,6 +39,7 @@ if (location.search.includes("play")) {
   (game as any).debugPlay(ph ? parseFloat(ph[1]) : 0, st ? parseInt(st[1]) : 1);
 }
 if (location.search.includes("menu")) game.toggleMenu();
+if (location.search.includes("enterscreen")) (game as any).debugEnter();
 if (location.search.includes("touch")) document.body.classList.add("show-touch");
 if (location.search.includes("edit")) (game as any).editor.toggle();
 
@@ -142,7 +143,7 @@ function buildControls(input: Input, game: Game) {
   document.body.appendChild(wrap);
 
   const go = wrap.querySelector(".gobtn") as HTMLButtonElement;
-  go.addEventListener("pointerdown", (e) => { e.preventDefault(); (game as any).begin(); });
+  go.addEventListener("pointerdown", (e) => { e.preventDefault(); game.primaryAction(); });
 
   // Virtual joystick: drag from the pad centre; 8-way with a small dead-zone so
   // a diagonal drag moves diagonally.

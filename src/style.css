@@ -42,6 +42,72 @@ canvas {
 }
 .gear:active { background: rgba(0, 90, 110, 0.85); }
 
+/* 2-player button (next to the gear) */
+.p2btn {
+  position: fixed;
+  top: 8px;
+  right: 48px;
+  height: 34px;
+  padding: 0 10px;
+  font: 700 14px monospace;
+  color: #fe0;
+  background: rgba(48, 40, 0, 0.6);
+  border: 1px solid #660;
+  border-radius: 8px;
+  cursor: pointer;
+  z-index: 10;
+}
+
+/* 2-player lobby modal */
+.lobby {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.8);
+  z-index: 20;
+  font-family: monospace;
+}
+.lobby.hidden { display: none; }
+.lobby-box {
+  background: #05121a;
+  border: 2px solid #0aa;
+  border-radius: 12px;
+  padding: 22px;
+  width: min(86vw, 320px);
+  text-align: center;
+  color: #cff;
+}
+.lobby-box h2 { margin: 0 0 16px; color: #0ff; letter-spacing: 2px; }
+.lobby-box button {
+  display: inline-block;
+  margin: 6px 4px;
+  padding: 10px 14px;
+  font: 700 14px monospace;
+  color: #0ff;
+  background: rgba(0, 60, 70, 0.7);
+  border: 1px solid #088;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.lobby-box button[data-act="host"] { display: block; width: 100%; color: #fe0; border-color: #660; }
+.join-row { display: flex; gap: 6px; margin-top: 8px; }
+.code-in {
+  flex: 1;
+  padding: 10px;
+  font: 700 16px monospace;
+  text-transform: uppercase;
+  text-align: center;
+  letter-spacing: 3px;
+  color: #fff;
+  background: #02232c;
+  border: 1px solid #066;
+  border-radius: 8px;
+}
+.lobby-status { margin: 14px 0; min-height: 34px; font-size: 13px; line-height: 1.4; color: #9ee; }
+.lobby-status b { color: #fe0; font-size: 20px; letter-spacing: 3px; }
+
 /* On-screen touch controls. Styling is always defined; the container is only
  * DISPLAYED on coarse-pointer (touch) devices (or when forced via .show-touch). */
 .touch {

@@ -12,11 +12,25 @@ import {
 import { Input } from "./input";
 import { Audio } from "./audio";
 import { Settings } from "./settings";
-import { Store, Editor, type EditSpike } from "./editor";
+import { Store, Editor, type EditSpike, type MazeEdit } from "./editor";
+import { Net, type NetMsg } from "../net/net";
 import { drawText, textWidth } from "./font";
 
 type State = "title" | "ready" | "play" | "clear" | "dead" | "gameover";
 const XOFF = -CROP_LEFT_COLS * TILE; // render translate for the visible window
+
+interface RaceState {
+  net: Net;
+  role: "host" | "join";
+  remote: { x: number; y: number; bx: number; by: number } | null;
+  remoteFin: number; // race ms when peer finished (0 = still racing)
+  localFin: number;
+  result: "" | "win" | "lose";
+  counting: boolean;
+  countdown: number;
+  live: boolean;
+  raceMs: number;
+}
 
 // Settings-menu layout (shared by render + pointer hit-testing).
 const MENU_Y0 = 46, MENU_ROWH = 16, MENU_MINUS = 150, MENU_VAL = 164, MENU_PLUS = 196;
@@ -56,6 +70,7 @@ export class Game {
   private timer = 0;                  // state transition timer
   private beepCooldown = 0;
   private goalArmed = false;          // must leave the goal zone before it can win
+  private race: RaceState | null = null;
   private paused = false;
   private menu = false;               // settings overlay open
   private menuIndex = 0;
@@ -133,6 +148,7 @@ export class Game {
   // ---------------- update ----------------
   update(dt: number) {
     if (this.input.justPressed("KeyM")) this.audio.toggleMute();
+    if (this.race) { this.updateRace(dt); this.input.endFrame(); return; }
     if (this.input.justPressed("KeyO")) { this.menu = !this.menu; this.audio.unlock(); }
     if (this.menu) { this.updateMenu(); this.input.endFrame(); return; }
     const playing = this.state !== "title" && this.state !== "gameover";
@@ -306,8 +322,134 @@ export class Game {
     this.timer = 1.0;
   }
 
+  // ---------------- 2-player race ----------------
+  startRace(net: Net, role: "host" | "join") {
+    this.audio.unlock();
+    this.menu = false;
+    if (this.editor.active) this.editor.toggle();
+    this.race = {
+      net, role, remote: null, remoteFin: 0, localFin: 0,
+      result: "", counting: false, countdown: 3, live: false, raceMs: 0,
+    };
+    net.onData = (m) => this.onRaceData(m);
+    net.onClose = () => { this.race = null; this.state = "title"; };
+    this.score = 0;
+    this.stage = 1;
+    this.level = 0;
+    this.reloadMaze();
+    this.spawn();
+    this.state = "play";
+    if (role === "host") {
+      net.send({ t: "cfg", level: 0, edits: this.store.edit(0) });
+      net.send({ t: "go" });
+      this.race.counting = true; this.race.countdown = 3;
+    }
+  }
+
+  private onRaceData(m: NetMsg) {
+    const r = this.race;
+    if (!r) return;
+    if (m.t === "cfg") {
+      const e = this.store.edit(0), src = m.edits as MazeEdit;
+      e.start = src.start; e.goal = src.goal; e.spikes = src.spikes;
+      this.reloadMaze(); this.spawn();
+    } else if (m.t === "go") {
+      r.counting = true; r.countdown = 3;
+    } else if (m.t === "p") {
+      r.remote = { x: m.x, y: m.y, bx: m.bx, by: m.by };
+    } else if (m.t === "fin") {
+      r.remoteFin = m.ms;
+      if (!r.localFin && !r.result) r.result = "lose";
+    }
+  }
+
+  private updateRace(dt: number) {
+    const r = this.race!;
+    if (r.result) {
+      if (this.input.justPressed("Space")) { r.net.destroy(); this.race = null; this.state = "title"; }
+      return;
+    }
+    if (r.counting) {
+      r.countdown -= dt;
+      if (r.countdown <= 0) { r.counting = false; r.live = true; this.audio.mazeStart(); }
+      return;
+    }
+    if (!r.live) return;
+
+    r.raceMs += dt * 1000;
+    const d = this.input.dir();
+    if (d.x !== 0 || d.y !== 0) {
+      const mag = Math.hypot(d.x, d.y) || 1;
+      this.px += (d.x / mag) * this.moveSpeed() * dt;
+      this.py += (d.y / mag) * this.moveSpeed() * dt;
+    }
+    const b = this.maze.bounds;
+    this.px = Math.max(b.x0, Math.min(b.x1, this.px));
+    this.py = Math.max(b.y0, Math.min(b.y1, this.py));
+    this.phase += dt;
+    for (const sp of this.spikes) sp.t += dt;
+
+    const rad = this.radius();
+    const bp = this.balloonPos();
+    const boxX = this.px, boxY = this.py + this.s("stringLen");
+    r.net.send({ t: "p", x: bp.x, y: bp.y, bx: boxX, by: boxY });
+
+    let hit = balloonHits(this.maze, bp.x, bp.y, rad) ||
+      segmentHits(this.maze, boxX, boxY, bp.x, bp.y) || balloonHits(this.maze, boxX, boxY, 2);
+    for (const sp of this.spikes) {
+      const p = spikePos(sp);
+      if (spikeHitsDisc(p.x, p.y, bp.x, bp.y, rad) || spikeHitsDisc(p.x, p.y, boxX, boxY, 2)) hit = true;
+    }
+    if (hit) { this.audio.pop(); this.spawn(); return; } // race: respawn, lose time
+
+    const gz = this.maze.goalZone;
+    const inZone = (x: number, y: number) => {
+      const c = Math.floor(x / TILE), rr = Math.floor(y / TILE);
+      return c >= gz.c0 && c <= gz.c1 && rr >= gz.r0 && rr <= gz.r1;
+    };
+    const gd = Math.min(
+      Math.hypot(bp.x - this.maze.goal.x, bp.y - this.maze.goal.y),
+      Math.hypot(boxX - this.maze.goal.x, boxY - this.maze.goal.y));
+    if (gd > TILE * 5) this.goalArmed = true;
+    if (!r.localFin && this.goalArmed && (inZone(bp.x, bp.y) || inZone(boxX, boxY))) {
+      r.localFin = r.raceMs;
+      r.net.send({ t: "fin", ms: r.raceMs });
+      this.audio.goal();
+      if (!r.result) r.result = (r.remoteFin && r.remoteFin < r.localFin) ? "lose" : "win";
+    }
+  }
+
+  private renderRace(ctx: CanvasRenderingContext2D) {
+    const r = this.race!;
+    ctx.fillStyle = PALETTE.black;
+    ctx.fillRect(0, 0, SCREEN_W, SCREEN_H);
+    ctx.save();
+    ctx.translate(XOFF, 0);
+    this.drawMaze(ctx);
+    this.drawSpikes(ctx);
+    if (r.remote) { // opponent shadow
+      ctx.globalAlpha = 0.45;
+      ctx.strokeStyle = PALETTE.white; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(r.remote.x, r.remote.y); ctx.lineTo(r.remote.bx, r.remote.by); ctx.stroke();
+      ctx.fillStyle = PALETTE.white;
+      ctx.beginPath(); ctx.arc(r.remote.x, r.remote.y, this.radius() + 0.7, 0, Math.PI * 2); ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+    this.drawBalloon(ctx);
+    ctx.restore();
+
+    drawText(ctx, 2, 1, "RACE " + (r.role === "host" ? "P1" : "P2"), PALETTE.green, 1);
+    drawText(ctx, 2, 9, (r.raceMs / 1000).toFixed(1), PALETTE.white, 1);
+    const center = (t: string, y: number, c: string, s = 2) =>
+      drawText(ctx, (SCREEN_W - textWidth(t, s)) / 2, y, t, c, s);
+    if (r.counting) center(Math.max(1, Math.ceil(r.countdown)).toString(), 104, PALETTE.yellow, 4);
+    if (r.result === "win") { center("YOU WIN", 100, PALETTE.green, 3); center("PRESS SPACE", 140, PALETTE.white, 1); }
+    if (r.result === "lose") { center("YOU LOSE", 100, PALETTE.red, 3); center("PRESS SPACE", 140, PALETTE.white, 1); }
+  }
+
   // ---------------- render ----------------
   render(ctx: CanvasRenderingContext2D) {
+    if (this.race) { this.renderRace(ctx); return; }
     ctx.fillStyle = PALETTE.black;
     ctx.fillRect(0, 0, SCREEN_W, SCREEN_H);
 

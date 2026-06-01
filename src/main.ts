@@ -6,6 +6,7 @@ import { Input } from "./game/input";
 import { Audio } from "./game/audio";
 import { Settings } from "./game/settings";
 import { Store, Editor } from "./game/editor";
+import { Net } from "./net/net";
 import { Game } from "./game/game";
 
 const app = document.getElementById("app")!;
@@ -41,11 +42,74 @@ if (location.search.includes("touch")) document.body.classList.add("show-touch")
 if (location.search.includes("edit")) (game as any).editor.toggle();
 
 buildControls(input, game);
+buildLobby(game);
 
 startLoop(
   (dt) => game.update(dt),
   () => game.render(ctx),
 );
+
+/** DOM lobby for the 2-player race: host (shows a code) or join (enter a code). */
+function buildLobby(game: Game) {
+  const btn = document.createElement("button");
+  btn.className = "p2btn";
+  btn.textContent = "2P";
+  document.body.appendChild(btn);
+
+  const lobby = document.createElement("div");
+  lobby.className = "lobby hidden";
+  lobby.innerHTML = `
+    <div class="lobby-box">
+      <h2>2-PLAYER RACE</h2>
+      <button data-act="host">HOST GAME</button>
+      <div class="join-row">
+        <input class="code-in" placeholder="CODE" maxlength="6" autocapitalize="characters" />
+        <button data-act="join">JOIN</button>
+      </div>
+      <div class="lobby-status">Host a game and share the code, or join with a friend's code.</div>
+      <button data-act="close">CANCEL</button>
+    </div>`;
+  document.body.appendChild(lobby);
+
+  const status = lobby.querySelector(".lobby-status") as HTMLElement;
+  const input = lobby.querySelector(".code-in") as HTMLInputElement;
+  let net: Net | null = null;
+
+  const show = () => lobby.classList.remove("hidden");
+  const hide = () => lobby.classList.add("hidden");
+  const cleanup = () => { net?.destroy(); net = null; };
+
+  btn.addEventListener("click", show);
+
+  lobby.querySelector('[data-act="close"]')!.addEventListener("click", () => { cleanup(); hide(); });
+
+  lobby.querySelector('[data-act="host"]')!.addEventListener("click", async () => {
+    cleanup();
+    net = new Net();
+    status.textContent = "Creating game…";
+    net.onOpen = () => { game.startRace(net!, "host"); hide(); };
+    try {
+      const code = await net.host();
+      status.innerHTML = `Your code: <b>${code}</b><br>Waiting for player 2…`;
+    } catch { status.textContent = "Could not create game — try again."; }
+  });
+
+  const doJoin = async () => {
+    const code = input.value.trim().toUpperCase();
+    if (!code) { status.textContent = "Enter a code to join."; return; }
+    cleanup();
+    net = new Net();
+    status.textContent = "Connecting…";
+    try {
+      await net.join(code);
+      game.startRace(net, "join");
+      hide();
+    } catch { status.textContent = "Could not connect — check the code."; }
+  };
+  lobby.querySelector('[data-act="join"]')!.addEventListener("click", doJoin);
+  input.addEventListener("keydown", (e) => { if (e.key === "Enter") doJoin(); });
+  if (location.search.includes("lobby")) show();
+}
 
 /** On-screen gear (settings), virtual joystick (8-way incl. diagonals), and a
  * GO/start button — shown on touch devices. */

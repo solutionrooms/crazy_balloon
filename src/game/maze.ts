@@ -16,6 +16,10 @@ export interface PlayMaze {
   goal: { x: number; y: number };
   /** GOAL is a zone (cell bounds): reaching any cell inside completes the maze. */
   goalZone: { c0: number; r0: number; c1: number; r1: number };
+  /** True if the marker sits in the lower half — the opening is on the bottom edge,
+   * so the rig enters with its base at the marker and the balloon above it. */
+  startBottom: boolean;
+  goalBottom: boolean;
   bounds: { x0: number; y0: number; x1: number; y1: number }; // px, interior
 }
 
@@ -66,8 +70,14 @@ export function loadMaze(index: number): PlayMaze {
         if (c >= 0 && c < MAZE_N && r >= 0 && r < MAZE_N) lethal[r * MAZE_N + c] = 0;
       }
   };
-  clear(raw.start, -1, 3); // extra room below START for the string + box (whole-rig collision)
-  clear(raw.goal);
+  // Which edge is each opening on? (lower half => bottom edge => base sits at marker)
+  const midR = (minR + maxR) / 2;
+  const startBottom = raw.start[1] > midR;
+  const goalBottom = raw.goal[1] > midR;
+  // Clear room for the rig: bottom openings need room ABOVE (balloon floats up);
+  // top openings need room BELOW (box hangs down).
+  clear(raw.start, startBottom ? -3 : -1, startBottom ? 1 : 3);
+  clear(raw.goal, -2, 2); // generous: covers the whole goal zone
 
   // GOAL zone: a square around the GOAL marker. Reaching any cell inside wins.
   const GZ = 2; // half-size in tiles (5x5 square)
@@ -97,6 +107,8 @@ export function loadMaze(index: number): PlayMaze {
     start: ctr(raw.start),
     goal: ctr(raw.goal),
     goalZone,
+    startBottom,
+    goalBottom,
     // keep the balloon just inside the border rectangle
     bounds: { x0: (minC + 1) * TILE, y0: (minR + 1) * TILE, x1: (maxC) * TILE, y1: (maxR) * TILE },
   };
@@ -181,7 +193,7 @@ export function genSpikes(maze: PlayMaze, count: number, speedCellsPerSec: numbe
       let e = c;
       while (e < MAZE_N && !lethal[r * MAZE_N + e]) e++;
       if (e - c >= 5 && far(c, r) && far(e - 1, r)) {
-        runs.push({ r, c0: c + 1, c1: e - 2 }); // keep 1-cell pad from walls
+        runs.push({ r, c0: c, c1: e - 1 }); // travel the full open run (wider)
       }
       c = e;
     }

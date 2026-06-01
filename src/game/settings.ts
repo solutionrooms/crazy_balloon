@@ -14,15 +14,17 @@ export interface SettingDef {
 }
 
 export const DEFAULTS: SettingDef[] = [
-  { key: "swingAmp", label: "SWING AMPLITUDE", def: 14, min: 0, max: 28, step: 1 },
+  { key: "swingAmp", label: "SWING AMPLITUDE", def: 12, min: 0, max: 28, step: 1 },
   { key: "stringLen", label: "STRING LENGTH", def: 16, min: 8, max: 40, step: 1 },
-  { key: "swingPeriod", label: "SWING PERIOD", def: 1.5, min: 0.4, max: 3.0, step: 0.1, decimals: 1 },
-  { key: "moveSpeed", label: "MOVE SPEED", def: 46, min: 16, max: 110, step: 2 },
-  { key: "balloonSize", label: "BALLOON SIZE", def: 3.3, min: 1.5, max: 6.0, step: 0.1, decimals: 1 },
+  { key: "swingPeriod", label: "SWING PERIOD", def: 2.5, min: 0.4, max: 3.0, step: 0.1, decimals: 1 },
+  { key: "moveSpeed", label: "MOVE SPEED", def: 40, min: 16, max: 110, step: 2 },
+  { key: "balloonSize", label: "BALLOON SIZE", def: 3.6, min: 1.5, max: 6.0, step: 0.1, decimals: 1 },
+  { key: "startOffX", label: "START X OFFSET", def: 0, min: -12, max: 12, step: 1 },
+  { key: "startOffY", label: "START Y OFFSET", def: 0, min: -12, max: 12, step: 1 },
   { key: "startLives", label: "START LIVES", def: 3, min: 1, max: 9, step: 1 },
 ];
 
-const STORAGE_KEY = "crazyballoon.settings.v1";
+const STORAGE_KEY = "crazyballoon.settings.v2";
 
 export class Settings {
   readonly defs = DEFAULTS;

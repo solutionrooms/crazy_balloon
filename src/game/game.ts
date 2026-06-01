@@ -86,8 +86,11 @@ export class Game {
   private spawn() {
     // Spawn at the authentic START marker (loadMaze already cleared a safe
     // pocket around it). No nudging — that caused instant-pop in tight mazes.
-    this.px = this.maze.start.x;
-    this.py = this.maze.start.y;
+    // Edge-aware: bottom openings place the BASE/box at the marker (balloon floats
+    // up into the maze); top openings place the BALLOON at the marker (box hangs down).
+    const L = this.s("stringLen");
+    this.px = this.maze.start.x + this.s("startOffX") * TILE;
+    this.py = (this.maze.startBottom ? this.maze.start.y - L : this.maze.start.y) + this.s("startOffY") * TILE;
     this.phase = 0;
     this.goalArmed = false;
   }
@@ -111,8 +114,10 @@ export class Game {
     if (this.input.justPressed("KeyM")) this.audio.toggleMute();
     if (this.input.justPressed("KeyO")) { this.menu = !this.menu; this.audio.unlock(); }
     if (this.menu) { this.updateMenu(); this.input.endFrame(); return; }
-    if (this.input.justPressed("KeyP") && this.state === "play") this.paused = !this.paused;
-    if (this.paused && this.state === "play") { this.input.endFrame(); return; }
+    // level switching (testing): N = next, P = previous
+    const playing = this.state !== "title" && this.state !== "gameover";
+    if (playing && this.input.justPressed("KeyN")) { this.stage += 1; this.loadStage(); }
+    if (playing && this.input.justPressed("KeyP")) { this.stage = Math.max(1, this.stage - 1); this.loadStage(); }
 
     switch (this.state) {
       case "title":
@@ -227,18 +232,23 @@ export class Game {
         segmentHits(this.maze, boxX, boxY, bp.x, bp.y) ||
         balloonHits(this.maze, boxX, boxY, 2)) { this.die(); return; }
 
-    // proximity beeping as you near the GOAL
-    const gd = Math.hypot(bp.x - this.maze.goal.x, bp.y - this.maze.goal.y);
+    // GOAL is reached when EITHER end of the rig (balloon or box) enters the zone.
+    const gz = this.maze.goalZone;
+    const inZone = (x: number, y: number) => {
+      const c = Math.floor(x / TILE), rr = Math.floor(y / TILE);
+      return c >= gz.c0 && c <= gz.c1 && rr >= gz.r0 && rr <= gz.r1;
+    };
+    const inGoal = inZone(bp.x, bp.y) || inZone(boxX, boxY);
+    // nearest rig end to the goal centre (proximity beep + arming)
+    const gd = Math.min(
+      Math.hypot(bp.x - this.maze.goal.x, bp.y - this.maze.goal.y),
+      Math.hypot(boxX - this.maze.goal.x, boxY - this.maze.goal.y),
+    );
     this.beepCooldown -= dt;
     if (gd < TILE * 5 && this.beepCooldown <= 0) {
       this.audio.beep();
       this.beepCooldown = 0.12 + (gd / (TILE * 5)) * 0.5;
     }
-    // reached anywhere in the GOAL zone -> maze complete (must have left it first,
-    // so spawning next to the goal — e.g. maze 1's enclosure — doesn't auto-win)
-    const bc = Math.floor(bp.x / TILE), br = Math.floor(bp.y / TILE);
-    const gz = this.maze.goalZone;
-    const inGoal = bc >= gz.c0 && bc <= gz.c1 && br >= gz.r0 && br <= gz.r1;
     if (gd > TILE * 5) this.goalArmed = true; // travelled well clear of the goal
     if (inGoal && this.goalArmed) {
       this.score += GOAL_BONUS;

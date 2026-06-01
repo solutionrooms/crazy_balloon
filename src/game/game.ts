@@ -174,11 +174,8 @@ export class Game {
       case "dead":
         this.timer -= dt;
         if (this.timer <= 0) {
-          if (this.lives <= 0) {
-            this.store.recordScore(this.score);
-            this.hi = this.store.hiScore;
-            this.state = "gameover"; this.timer = 0;
-          } else { this.spawn(); this.state = "play"; }
+          if (this.lives <= 0) { this.gameOver(); }
+          else { this.spawn(); this.state = "play"; }
         }
         break;
       case "gameover":
@@ -301,6 +298,20 @@ export class Game {
       this.state = "clear";
       this.timer = 1.4;
     }
+  }
+
+  private gameOver() {
+    this.state = "gameover";
+    this.timer = 0;
+    const cs = this.store.cloudScores;
+    const qualifies = this.score > 0 && (cs.length < 10 || this.score > (cs[cs.length - 1]?.score ?? 0));
+    if (this.store.cloudOn && qualifies) {
+      const name = (window.prompt("New high score! Enter initials:", "YOU") || "YOU").toUpperCase();
+      void this.store.submitScore(name, this.score);
+    } else {
+      this.store.recordScore(this.score);
+    }
+    this.hi = this.store.hiScore;
   }
 
   private die() {
@@ -548,9 +559,12 @@ export class Game {
       center("GAME", 70, PALETTE.red, 3);
       center("OVER", 100, PALETTE.red, 3);
       center("SCORE " + pad(this.score, 6), 134, PALETTE.white, 1);
-      center("BEST SCORES", 152, PALETTE.yellow, 1);
-      this.store.scores.slice(0, 5).forEach((s, i) =>
-        center(`${i + 1}. ` + pad(s, 6), 164 + i * 9, i === 0 ? PALETTE.cyan : PALETTE.white, 1));
+      const cloud = this.store.cloudScores;
+      center(cloud.length ? "WORLD BEST" : "BEST SCORES", 152, PALETTE.yellow, 1);
+      const rows = cloud.length
+        ? cloud.slice(0, 5).map((s) => `${s.name.slice(0, 3).padEnd(3)} ${pad(s.score, 6)}`)
+        : this.store.scores.slice(0, 5).map((s) => pad(s, 6));
+      rows.forEach((line, i) => center(`${i + 1}. ${line}`, 164 + i * 9, i === 0 ? PALETTE.cyan : PALETTE.white, 1));
       center("PRESS SPACE", 224, PALETTE.green, 1);
     }
     if (this.paused && this.state === "play") center("PAUSED", 120, PALETTE.white, 2);

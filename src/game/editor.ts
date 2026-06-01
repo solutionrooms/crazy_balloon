@@ -1,11 +1,12 @@
 /** Level editor + persistence (localStorage): per-maze spikes, start/goal,
  * per-level option overrides, and high scores. */
 import { MAZE_N } from "../levels/mazes";
-import { TILE, PALETTE, COLOR_PALETTE, SPIKE_COLORS } from "../engine/constants";
+import { TILE, SCREEN_W, PALETTE, COLOR_PALETTE, SPIKE_COLORS } from "../engine/constants";
 import { chars } from "../gfx/tiles";
 import type { PlayMaze } from "./maze";
 import type { Input } from "./input";
 import type { Settings } from "./settings";
+import { cloudLoadLevels, cloudSaveLevels, cloudTopScores, cloudAddScore, cloudEnabled, type CloudScore } from "../net/cloud";
 import { drawText, textWidth } from "./font";
 
 export interface EditSpike {
@@ -28,6 +29,9 @@ const SCORES_KEY = "crazyballoon.scores.v1";
 export class Store {
   private edits: Record<number, MazeEdit> = {};
   scores: number[] = [];
+  cloudScores: CloudScore[] = [];
+  cloudMsg = "";
+  private hadLocal = false;
 
   constructor() { this.load(); }
 
@@ -37,11 +41,15 @@ export class Store {
     e.spikes ??= []; e.options ??= {}; // tolerate older saves
     return e;
   }
-  get hiScore(): number { return this.scores[0] ?? 0; }
+  get hiScore(): number {
+    const localBest = this.scores[0] ?? 0;
+    const cloudBest = this.cloudScores[0]?.score ?? 0;
+    return Math.max(localBest, cloudBest);
+  }
 
   recordScore(score: number): boolean {
     if (score <= 0) return false;
-    const best = this.hiScore;
+    const best = this.scores[0] ?? 0;
     this.scores.push(score);
     this.scores.sort((a, b) => b - a);
     this.scores = this.scores.slice(0, 5);
@@ -51,9 +59,39 @@ export class Store {
 
   save() { try { localStorage.setItem(EDITS_KEY, JSON.stringify(this.edits)); } catch { /* ignore */ } }
 
+  // ---- cloud (Supabase) ----
+  get cloudOn() { return cloudEnabled(); }
+
+  /** On startup: adopt published cloud levels if this device has none yet; cache scores. */
+  async initCloud() {
+    if (!cloudEnabled()) return;
+    const lv = await cloudLoadLevels();
+    if (lv && !this.hadLocal) { this.edits = lv as Record<number, MazeEdit>; this.save(); this.cloudMsg = "loaded levels from cloud"; }
+    this.cloudScores = await cloudTopScores(10);
+  }
+  /** Publish the current levels to the cloud (explicit, from the editor). */
+  async publish() {
+    this.cloudMsg = "publishing…";
+    this.cloudMsg = (await cloudSaveLevels(this.edits as Record<string, unknown>))
+      ? "published to cloud ✓" : "publish failed";
+  }
+  /** Pull the published levels from the cloud (overwrites local working copy). */
+  async pull() {
+    const lv = await cloudLoadLevels();
+    if (lv) { this.edits = lv as Record<number, MazeEdit>; this.save(); this.cloudMsg = "loaded from cloud ✓"; }
+    else this.cloudMsg = "no cloud levels found";
+  }
+  /** Submit a finished score to the global board + local table. */
+  async submitScore(name: string, score: number) {
+    this.recordScore(score);
+    await cloudAddScore(name, score);
+    this.cloudScores = await cloudTopScores(10);
+  }
+
   private load() {
     try {
-      const e = localStorage.getItem(EDITS_KEY); if (e) this.edits = JSON.parse(e);
+      const e = localStorage.getItem(EDITS_KEY);
+      if (e) { this.edits = JSON.parse(e); this.hadLocal = true; }
       const s = localStorage.getItem(SCORES_KEY); if (s) this.scores = JSON.parse(s);
     } catch { /* ignore */ }
   }
@@ -119,6 +157,8 @@ export class Editor {
         { this.movingSpike.speed = +(this.movingSpike.speed + 0.5).toFixed(1); changed = true; }
     }
     if (input.justPressed("KeyX")) { const sp = this.spikeAt(e); if (sp) { e.spikes.splice(e.spikes.indexOf(sp), 1); changed = true; } }
+    if (input.justPressed("KeyU")) { void this.store.publish(); }     // upload to cloud
+    if (input.justPressed("KeyL")) { void this.store.pull(); }        // load from cloud
 
     if (changed) this.store.save();
   }
@@ -163,11 +203,13 @@ export class Editor {
     ctx.fillStyle = "rgba(0,0,0,0.72)";
     ctx.fillRect(0, 0, ctx.canvas.width, 34);
     drawText(ctx, 2, 1, "EDIT MAZE " + (mazeIndex + 1), PALETTE.yellow, 1);
+    if (this.store.cloudMsg)
+      drawText(ctx, SCREEN_W - textWidth(this.store.cloudMsg, 1) - 2, 1, this.store.cloudMsg, PALETTE.green, 1);
     drawText(ctx, 2, 9, "S START  G GOAL  SPACE SPIKE  C COLOR", PALETTE.white, 1);
     const sp = this.spikeAt(e);
     const spd = this.moving && this.movingSpike ? "  SPD " + this.movingSpike.speed.toFixed(1) : (sp ? "  SPD " + sp.speed.toFixed(1) : "");
-    drawText(ctx, 2, 17, this.moving ? "M SET END   -/+ SPEED" + spd : "M MOVE SPIKE" + spd, PALETTE.cyan, 1);
-    drawText(ctx, 2, 25, "X DELETE   O LEVEL OPTIONS   E EXIT", PALETTE.green, 1);
+    drawText(ctx, 2, 17, (this.moving ? "M SET END  -/+ SPEED" + spd : "M MOVE" + spd) + "  X DEL  O OPTS", PALETTE.cyan, 1);
+    drawText(ctx, 2, 25, this.store.cloudOn ? "U PUBLISH  L LOAD CLOUD  E EXIT" : "E EXIT  (cloud off)", PALETTE.green, 1);
   }
 
   private renderOptions(ctx: CanvasRenderingContext2D, e: MazeEdit, settings: Settings) {

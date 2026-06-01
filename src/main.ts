@@ -18,6 +18,7 @@ const settings = new Settings();
 const store = new Store();
 const editor = new Editor(store);
 const game = new Game(input, audio, settings, store, editor);
+void store.initCloud(); // pull published levels (fresh device) + cloud high scores
 
 // Unlock audio on the first user gesture (browser autoplay policy).
 const unlock = () => audio.unlock();

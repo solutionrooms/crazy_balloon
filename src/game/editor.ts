@@ -31,7 +31,6 @@ export class Store {
   scores: number[] = [];
   cloudScores: CloudScore[] = [];
   cloudMsg = "";
-  private hadLocal = false;
 
   constructor() { this.load(); }
 
@@ -62,11 +61,12 @@ export class Store {
   // ---- cloud (Supabase) ----
   get cloudOn() { return cloudEnabled(); }
 
-  /** On startup: adopt published cloud levels if this device has none yet; cache scores. */
+  /** On startup: always refresh the published levels from the cloud (the DB is the
+   * source of truth); cache the global scores. Falls back to local if unreachable. */
   async initCloud() {
     if (!cloudEnabled()) return;
     const lv = await cloudLoadLevels();
-    if (lv && !this.hadLocal) { this.edits = lv as Record<number, MazeEdit>; this.save(); this.cloudMsg = "loaded levels from cloud"; }
+    if (lv) { this.edits = lv as Record<number, MazeEdit>; this.save(); this.cloudMsg = "levels loaded from cloud"; }
     this.cloudScores = await cloudTopScores(10);
   }
   /** Publish the current levels to the cloud (explicit, from the editor). */
@@ -91,7 +91,7 @@ export class Store {
   private load() {
     try {
       const e = localStorage.getItem(EDITS_KEY);
-      if (e) { this.edits = JSON.parse(e); this.hadLocal = true; }
+      if (e) this.edits = JSON.parse(e);
       const s = localStorage.getItem(SCORES_KEY); if (s) this.scores = JSON.parse(s);
     } catch { /* ignore */ }
   }

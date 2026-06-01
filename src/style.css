@@ -107,6 +107,8 @@ canvas {
 }
 .lobby-status { margin: 14px 0; min-height: 34px; font-size: 13px; line-height: 1.4; color: #9ee; }
 .lobby-status b { color: #fe0; font-size: 20px; letter-spacing: 3px; }
+.lobby .share { width: 100%; margin: 6px 0; padding: 6px; font: 600 11px monospace; color: #9ee; background: #02232c; border: 1px solid #066; border-radius: 6px; }
+.lobby .copy { font-size: 11px !important; padding: 6px 10px !important; }
 
 /* On-screen touch controls. Styling is always defined; the container is only
  * DISPLAYED on coarse-pointer (touch) devices (or when forced via .show-touch). */

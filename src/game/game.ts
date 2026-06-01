@@ -22,7 +22,9 @@ const XOFF = -CROP_LEFT_COLS * TILE; // render translate for the visible window
 interface RaceState {
   net: Net;
   role: "host" | "join";
-  remote: { x: number; y: number; bx: number; by: number } | null;
+  remote: { x: number; y: number; bx: number; by: number } | null; // latest received
+  shown: { x: number; y: number; bx: number; by: number } | null;  // eased for render
+  sendAcc: number;   // throttle accumulator
   remoteFin: number; // race ms when peer finished (0 = still racing)
   localFin: number;
   result: "" | "win" | "lose";
@@ -316,7 +318,7 @@ export class Game {
     this.menu = false;
     if (this.editor.active) this.editor.toggle();
     this.race = {
-      net, role, remote: null, remoteFin: 0, localFin: 0,
+      net, role, remote: null, shown: null, sendAcc: 0, remoteFin: 0, localFin: 0,
       result: "", counting: false, countdown: 3, live: false, raceMs: 0,
     };
     net.onData = (m) => this.onRaceData(m);
@@ -380,7 +382,8 @@ export class Game {
     const rad = this.radius();
     const bp = this.balloonPos();
     const boxX = this.px, boxY = this.py + this.s("stringLen");
-    r.net.send({ t: "p", x: bp.x, y: bp.y, bx: boxX, by: boxY });
+    r.sendAcc += dt;
+    if (r.sendAcc >= 1 / 30) { r.net.send({ t: "p", x: bp.x, y: bp.y, bx: boxX, by: boxY }); r.sendAcc = 0; }
 
     let hit = balloonHits(this.maze, bp.x, bp.y, rad) ||
       segmentHits(this.maze, boxX, boxY, bp.x, bp.y) || balloonHits(this.maze, boxX, boxY, 2);
@@ -415,12 +418,19 @@ export class Game {
     ctx.translate(XOFF, 0);
     this.drawMaze(ctx);
     this.drawSpikes(ctx);
-    if (r.remote) { // opponent shadow
+    if (r.remote) { // opponent shadow (eased toward the latest received position)
+      if (!r.shown) r.shown = { ...r.remote };
+      const k = 0.3;
+      r.shown.x += (r.remote.x - r.shown.x) * k;
+      r.shown.y += (r.remote.y - r.shown.y) * k;
+      r.shown.bx += (r.remote.bx - r.shown.bx) * k;
+      r.shown.by += (r.remote.by - r.shown.by) * k;
+      const sh = r.shown;
       ctx.globalAlpha = 0.45;
       ctx.strokeStyle = PALETTE.white; ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.moveTo(r.remote.x, r.remote.y); ctx.lineTo(r.remote.bx, r.remote.by); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(sh.x, sh.y); ctx.lineTo(sh.bx, sh.by); ctx.stroke();
       ctx.fillStyle = PALETTE.white;
-      ctx.beginPath(); ctx.arc(r.remote.x, r.remote.y, this.radius() + 0.7, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(sh.x, sh.y, this.radius() + 0.7, 0, Math.PI * 2); ctx.fill();
       ctx.globalAlpha = 1;
     }
     this.drawBalloon(ctx);

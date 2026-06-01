@@ -63,7 +63,7 @@ function buildLobby(game: Game) {
       <h2>2-PLAYER RACE</h2>
       <button data-act="host">HOST GAME</button>
       <div class="join-row">
-        <input class="code-in" placeholder="CODE" maxlength="6" autocapitalize="characters" />
+        <input class="code-in" placeholder="PASTE CODE OR LINK" />
         <button data-act="join">JOIN</button>
       </div>
       <div class="lobby-status">Host a game and share the code, or join with a friend's code.</div>
@@ -89,14 +89,24 @@ function buildLobby(game: Game) {
     status.textContent = "Creating game…";
     net.onOpen = () => { game.startRace(net!, "host"); hide(); };
     try {
-      const code = await net.host();
-      status.innerHTML = `Your code: <b>${code}</b><br>Waiting for player 2…`;
+      const id = await net.host();
+      const link = location.origin + location.pathname + "?join=" + encodeURIComponent(id);
+      status.innerHTML = `Send this link to player 2:<br>
+        <input class="share" readonly value="${link}">
+        <button class="copy">COPY LINK</button><br>Waiting for player 2…`;
+      const share = status.querySelector(".share") as HTMLInputElement;
+      share.addEventListener("focus", () => share.select());
+      status.querySelector(".copy")!.addEventListener("click", () => {
+        navigator.clipboard?.writeText(link); share.select();
+      });
     } catch { status.textContent = "Could not create game — try again."; }
   });
 
-  const doJoin = async () => {
-    const code = input.value.trim().toUpperCase();
-    if (!code) { status.textContent = "Enter a code to join."; return; }
+  const doJoin = async (value?: string) => {
+    let code = (value ?? input.value).trim();
+    const m = code.match(/[?&]join=([^&]+)/);
+    if (m) code = decodeURIComponent(m[1]);
+    if (!code) { status.textContent = "Paste a code or link to join."; return; }
     cleanup();
     net = new Net();
     status.textContent = "Connecting…";
@@ -104,10 +114,14 @@ function buildLobby(game: Game) {
       await net.join(code);
       game.startRace(net, "join");
       hide();
-    } catch { status.textContent = "Could not connect — check the code."; }
+    } catch { status.textContent = "Could not connect — check the code/link."; }
   };
-  lobby.querySelector('[data-act="join"]')!.addEventListener("click", doJoin);
+  lobby.querySelector('[data-act="join"]')!.addEventListener("click", () => doJoin());
   input.addEventListener("keydown", (e) => { if (e.key === "Enter") doJoin(); });
+
+  // Auto-open + join when arriving via a shared ?join=<id> link.
+  const joinId = new URLSearchParams(location.search).get("join");
+  if (joinId) { show(); doJoin(joinId); }
   if (location.search.includes("lobby")) show();
 }
 

@@ -1,74 +1,69 @@
-/** Thin WebRTC wrapper (PeerJS) for the 2-player race. One peer hosts (gets a
- * short code), the other joins with it. After connect, game data flows directly
- * peer-to-peer; only the handshake uses PeerJS's free broker. */
-import { Peer, type DataConnection } from "peerjs";
+/** WebRTC wrapper (PeerJS) for the 2-player race — same approach as landitar:
+ * broker-assigned peer IDs, a reliable channel for game events + a separate
+ * unreliable "fast" channel for position. Only the handshake uses the broker;
+ * game data then flows directly peer-to-peer. */
+import Peer, { type DataConnection } from "peerjs";
 
 export type NetMsg =
   | { t: "cfg"; level: number; edits: unknown }
-  | { t: "go"; }
+  | { t: "go" }
   | { t: "p"; x: number; y: number; bx: number; by: number }
   | { t: "fin"; ms: number };
 
-const CODE_PREFIX = "CRBAL-";
-const ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-
-function randomCode(n = 4): string {
-  let s = "";
-  for (let i = 0; i < n; i++) s += ALPHABET[Math.floor(Math.random() * ALPHABET.length)];
-  return s;
-}
-
 export class Net {
   private peer: Peer | null = null;
-  private conn: DataConnection | null = null;
-  code = "";
+  private dataConn: DataConnection | null = null; // reliable: events
+  private fastConn: DataConnection | null = null; // unreliable: position
+  id = "";
   onOpen: () => void = () => {};
-  onData: (msg: NetMsg) => void = () => {};
+  onData: (m: NetMsg) => void = () => {};
   onClose: () => void = () => {};
 
-  /** Become host; resolves with the short code to share. Retries on ID clash. */
-  host(attempt = 0): Promise<string> {
+  /** Host: resolves with our broker peer-id (share it as a link/code). */
+  host(): Promise<string> {
     return new Promise((resolve, reject) => {
-      const code = randomCode();
-      const peer = new Peer(CODE_PREFIX + code);
+      const peer = new Peer();
       this.peer = peer;
-      peer.on("open", () => { this.code = code; resolve(code); });
-      peer.on("connection", (c) => this.bind(c));
-      peer.on("error", (e: any) => {
-        if (e?.type === "unavailable-id" && attempt < 5) {
-          peer.destroy();
-          this.host(attempt + 1).then(resolve, reject);
-        } else if (this.code === "") {
-          reject(e);
+      peer.on("open", (id) => { this.id = id; resolve(id); });
+      peer.on("error", (e) => { if (!this.id) reject(e); });
+      peer.on("connection", (conn) => {
+        if (conn.label === "fast" || (conn as any).reliable === false) {
+          this.fastConn = conn; this.bind(conn);
+        } else {
+          this.dataConn = conn; this.bind(conn);
+          conn.on("open", () => this.onOpen());
         }
       });
     });
   }
 
-  /** Join an existing host by code. Resolves once the data channel opens. */
-  join(code: string): Promise<void> {
+  /** Join an existing host by peer-id. Resolves once the reliable channel opens. */
+  join(id: string): Promise<void> {
     return new Promise((resolve, reject) => {
       const peer = new Peer();
       this.peer = peer;
       peer.on("open", () => {
-        const conn = peer.connect(CODE_PREFIX + code.trim().toUpperCase(), { reliable: true });
-        this.bind(conn);
-        conn.on("open", () => resolve());
+        const dc = peer.connect(id.trim(), { reliable: true });
+        const fc = peer.connect(id.trim(), { reliable: false, label: "fast" });
+        this.dataConn = dc; this.fastConn = fc;
+        this.bind(dc); this.bind(fc);
+        dc.on("open", () => { this.onOpen(); resolve(); });
       });
-      peer.on("error", (e: any) => reject(e));
+      peer.on("error", (e) => reject(e));
     });
   }
 
   private bind(conn: DataConnection) {
-    this.conn = conn;
-    conn.on("open", () => this.onOpen());
     conn.on("data", (d) => this.onData(d as NetMsg));
     conn.on("close", () => this.onClose());
   }
 
   send(msg: NetMsg) {
-    try { if (this.conn?.open) this.conn.send(msg); } catch { /* ignore */ }
+    try {
+      if (msg.t === "p" && this.fastConn?.open) { this.fastConn.send(msg); return; }
+      if (this.dataConn?.open) this.dataConn.send(msg);
+    } catch { /* ignore */ }
   }
-  get connected() { return !!this.conn?.open; }
-  destroy() { try { this.conn?.close(); this.peer?.destroy(); } catch { /* ignore */ } }
+  get connected() { return !!this.dataConn?.open; }
+  destroy() { try { this.dataConn?.close(); this.fastConn?.close(); this.peer?.destroy(); } catch { /* ignore */ } }
 }

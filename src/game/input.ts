@@ -45,4 +45,5 @@ export class Input {
 const HANDLED = new Set([
   "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Space",
   "KeyW", "KeyA", "KeyS", "KeyD", "KeyM", "KeyP", "KeyN",
+  "KeyE", "KeyG", "KeyX", "KeyC", "Tab", "Minus", "Equal", "BracketLeft", "BracketRight",
 ]);

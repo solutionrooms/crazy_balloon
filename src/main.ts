@@ -5,6 +5,7 @@ import { startLoop } from "./engine/loop";
 import { Input } from "./game/input";
 import { Audio } from "./game/audio";
 import { Settings } from "./game/settings";
+import { Store, Editor } from "./game/editor";
 import { Game } from "./game/game";
 
 const app = document.getElementById("app")!;
@@ -13,7 +14,9 @@ const { canvas, ctx } = createDisplay(app);
 const input = new Input();
 const audio = new Audio();
 const settings = new Settings();
-const game = new Game(input, audio, settings);
+const store = new Store();
+const editor = new Editor(store);
+const game = new Game(input, audio, settings, store, editor);
 
 // Unlock audio on the first user gesture (browser autoplay policy).
 const unlock = () => audio.unlock();
@@ -35,6 +38,7 @@ if (location.search.includes("play")) {
 }
 if (location.search.includes("menu")) game.toggleMenu();
 if (location.search.includes("touch")) document.body.classList.add("show-touch");
+if (location.search.includes("edit")) (game as any).editor.toggle();
 
 buildControls(input, game);
 

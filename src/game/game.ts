@@ -1,17 +1,18 @@
 import {
   SCREEN_W, SCREEN_H, TILE, CROP_LEFT_COLS, GOAL_BONUS, PROGRESS_POINTS,
   PALETTE, EXTRA_LIFE_SCORE, READY_SEC,
-  SWING_AMP_PER_LOOP, MOVE_SPEED_PER_LOOP, SPIKE_SPEED_BASE, type ColorName,
+  SWING_AMP_PER_LOOP, MOVE_SPEED_PER_LOOP, type ColorName,
 } from "../engine/constants";
 import { chars } from "../gfx/tiles";
 import { MAZES, MAZE_N, SPACE_TILE, FILLER_TILE } from "../levels/mazes";
 import {
-  loadMaze, balloonHits, segmentHits, spikeHitsDisc, genSpikes, spikePos, MAZE_COUNT,
+  loadMaze, balloonHits, segmentHits, spikeHitsDisc, spikePos, MAZE_COUNT,
   type PlayMaze, type Spike,
 } from "./maze";
 import { Input } from "./input";
 import { Audio } from "./audio";
 import { Settings } from "./settings";
+import { Store, Editor, type EditSpike } from "./editor";
 import { drawText, textWidth } from "./font";
 
 type State = "title" | "ready" | "play" | "clear" | "dead" | "gameover";
@@ -59,10 +60,22 @@ export class Game {
   private menu = false;               // settings overlay open
   private menuIndex = 0;
 
-  constructor(private input: Input, private audio: Audio, private settings: Settings) {
+  constructor(
+    private input: Input, private audio: Audio, private settings: Settings,
+    private store: Store, private editor: Editor,
+  ) {
+    this.hi = store.hiScore;
     this.stage = 1;
     this.loadStage();
     this.state = "title";
+  }
+
+  private toSpike(es: EditSpike): Spike {
+    const dist = Math.hypot(es.to[0] - es.from[0], es.to[1] - es.from[1]);
+    return {
+      fc: es.from[0], fr: es.from[1], tc: es.to[0], tr: es.to[1], t: 0,
+      period: es.speed > 0 ? (2 * dist) / es.speed : 0,
+    };
   }
 
   private s(key: string) { return this.settings.get(key); }
@@ -74,13 +87,21 @@ export class Game {
   private loadStage() {
     this.loop = Math.floor((this.stage - 1) / MAZE_COUNT);
     this.level = (this.stage - 1) % MAZE_COUNT;
-    this.maze = loadMaze(this.level);
-    const spikeCount = this.loop <= 0 ? 0 : 1 + this.loop;
-    this.spikes = genSpikes(this.maze, spikeCount, SPIKE_SPEED_BASE + this.loop * 0.4);
+    this.reloadMaze();
     this.visited.clear();
     this.spawn();
     this.state = "ready";
     this.timer = READY_SEC;
+  }
+
+  /** (Re)load the current maze applying the editor's overrides + spikes. */
+  private reloadMaze() {
+    const e = this.store.edit(this.level);
+    this.maze = loadMaze(this.level, {
+      start: e.start ?? undefined,
+      goal: e.goal ?? undefined,
+    });
+    this.spikes = e.spikes.filter((s) => s.on).map((s) => this.toSpike(s));
   }
 
   private spawn() {
@@ -114,8 +135,18 @@ export class Game {
     if (this.input.justPressed("KeyM")) this.audio.toggleMute();
     if (this.input.justPressed("KeyO")) { this.menu = !this.menu; this.audio.unlock(); }
     if (this.menu) { this.updateMenu(); this.input.endFrame(); return; }
-    // level switching (testing): N = next, P = previous
     const playing = this.state !== "title" && this.state !== "gameover";
+    // level editor (E) — pauses play; applies edits on exit
+    if (playing && this.input.justPressed("KeyE")) {
+      this.editor.toggle();
+      if (!this.editor.active) this.reloadMaze();
+    }
+    if (this.editor.active) {
+      if (playing) this.editor.handle(this.input, this.level);
+      this.input.endFrame();
+      return;
+    }
+    // level switching (testing): N = next, P = previous
     if (playing && this.input.justPressed("KeyN")) { this.stage += 1; this.loadStage(); }
     if (playing && this.input.justPressed("KeyP")) { this.stage = Math.max(1, this.stage - 1); this.loadStage(); }
 
@@ -137,8 +168,11 @@ export class Game {
       case "dead":
         this.timer -= dt;
         if (this.timer <= 0) {
-          if (this.lives <= 0) { this.state = "gameover"; this.timer = 0; }
-          else { this.spawn(); this.state = "play"; }
+          if (this.lives <= 0) {
+            this.store.recordScore(this.score);
+            this.hi = this.store.hiScore;
+            this.state = "gameover"; this.timer = 0;
+          } else { this.spawn(); this.state = "play"; }
         }
         break;
       case "gameover":
@@ -185,6 +219,10 @@ export class Game {
 
   /** Pointer (mouse/touch) in internal canvas coords — drives the menu. */
   handlePointer(x: number, y: number) {
+    if (this.editor.active) {
+      this.editor.pointTo(Math.floor((x - XOFF) / TILE), Math.floor(y / TILE));
+      return;
+    }
     if (!this.menu) return;
     const n = this.settings.defs.length;
     const row = Math.floor((y - MENU_Y0 + 6) / MENU_ROWH);
@@ -273,10 +311,17 @@ export class Game {
     ctx.fillStyle = PALETTE.black;
     ctx.fillRect(0, 0, SCREEN_W, SCREEN_H);
 
-    if (this.state !== "title" && this.state !== "gameover") {
+    const onMaze = this.state !== "title" && this.state !== "gameover";
+    if (onMaze) {
+      ctx.save(); ctx.translate(XOFF, 0); this.drawMaze(ctx); ctx.restore();
+    }
+    if (this.editor.active && onMaze) {
+      this.editor.render(ctx, this.maze, this.level, XOFF);
+      return;
+    }
+    if (onMaze) {
       ctx.save();
       ctx.translate(XOFF, 0);
-      this.drawMaze(ctx);
       this.drawSpikes(ctx);
       if (this.state === "play" || this.state === "dead") this.drawBalloon(ctx);
       ctx.restore();
@@ -347,9 +392,10 @@ export class Game {
     if (this.state === "title") {
       center("CRAZY", 64, PALETTE.cyan, 3);
       center("BALLOON", 94, PALETTE.magenta, 3);
-      center("PRESS SPACE", 150, PALETTE.white, 1);
-      center("ARROWS WASD TO MOVE", 165, PALETTE.green, 1);
-      center("O FOR SETTINGS", 180, PALETTE.yellow, 1);
+      center("PRESS SPACE", 144, PALETTE.white, 1);
+      center("ARROWS WASD TO MOVE", 158, PALETTE.green, 1);
+      center("O SETTINGS   E EDIT LEVELS", 172, PALETTE.yellow, 1);
+      if (this.store.hiScore > 0) center("HI " + pad(this.store.hiScore, 6), 192, PALETTE.cyan, 1);
     } else if (this.state === "ready") {
       center("LETS ATTACK !", 96, PALETTE.yellow, 2);
       center("PLAYER 1", 120, PALETTE.cyan, 1);
@@ -359,10 +405,13 @@ export class Game {
     } else if (this.state === "dead") {
       center("POP !", 120, PALETTE.yellow, 2);
     } else if (this.state === "gameover") {
-      center("GAME", 90, PALETTE.red, 3);
-      center("OVER", 120, PALETTE.red, 3);
-      center("SCORE " + pad(this.score, 6), 160, PALETTE.white, 1);
-      center("PRESS SPACE", 180, PALETTE.cyan, 1);
+      center("GAME", 70, PALETTE.red, 3);
+      center("OVER", 100, PALETTE.red, 3);
+      center("SCORE " + pad(this.score, 6), 134, PALETTE.white, 1);
+      center("BEST SCORES", 152, PALETTE.yellow, 1);
+      this.store.scores.slice(0, 5).forEach((s, i) =>
+        center(`${i + 1}. ` + pad(s, 6), 164 + i * 9, i === 0 ? PALETTE.cyan : PALETTE.white, 1));
+      center("PRESS SPACE", 224, PALETTE.green, 1);
     }
     if (this.paused && this.state === "play") center("PAUSED", 120, PALETTE.white, 2);
     if (this.audio.isMuted) drawText(ctx, SCREEN_W - textWidth("MUTE", 1) - 2, SCREEN_H - 7, "MUTE", PALETTE.border, 1);

@@ -12,12 +12,12 @@ export interface PlayMaze {
   lethal: Uint8Array; // MAZE_N*MAZE_N, 1 = lethal cell (start/goal pockets cleared)
   /** Pixel-perfect solid mask (MASK_W*MASK_H): 1 = a lit thorn/wall pixel. */
   mask: Uint8Array;
+  startCell: [number, number];
+  goalCell: [number, number];
   start: { x: number; y: number };
   goal: { x: number; y: number };
   /** GOAL is a zone (cell bounds): reaching any cell inside completes the maze. */
   goalZone: { c0: number; r0: number; c1: number; r1: number };
-  /** True if the marker sits in the lower half — the opening is on the bottom edge,
-   * so the rig enters with its base at the marker and the balloon above it. */
   startBottom: boolean;
   goalBottom: boolean;
   bounds: { x0: number; y0: number; x1: number; y1: number }; // px, interior
@@ -41,14 +41,18 @@ export const THORN_PIXELS: Array<[number, number]> = (() => {
   return out;
 })();
 
-// Thorns + wall bars are lethal (0x30..0x4F). Space/filler and the low marker
-// glyphs (letters/digits of START/GOAL) are safe.
+// Thorns + wall bars are lethal (0x30..0x4F). Space/filler and low marker glyphs are safe.
 function isLethal(tile: number): boolean {
   return tile >= 0x30 && tile <= 0x4f;
 }
 
-export function loadMaze(index: number): PlayMaze {
+export interface MazeOverride { start?: [number, number]; goal?: [number, number]; }
+
+export function loadMaze(index: number, ov?: MazeOverride): PlayMaze {
   const raw = MAZES[index];
+  const startCell = ov?.start ?? raw.start;
+  const goalCell = ov?.goal ?? raw.goal;
+
   const lethal = new Uint8Array(MAZE_N * MAZE_N);
   let minC = MAZE_N, minR = MAZE_N, maxC = 0, maxR = 0;
   for (let r = 0; r < MAZE_N; r++) {
@@ -61,7 +65,6 @@ export function loadMaze(index: number): PlayMaze {
       lethal[r * MAZE_N + c] = isLethal(t) ? 1 : 0;
     }
   }
-  // Clear a small pocket around START/GOAL so the balloon can spawn/finish there.
   const clear = (cell: [number, number], drLo = -1, drHi = 1) => {
     const [cc, rr] = cell;
     for (let dr = drLo; dr <= drHi; dr++)
@@ -70,20 +73,16 @@ export function loadMaze(index: number): PlayMaze {
         if (c >= 0 && c < MAZE_N && r >= 0 && r < MAZE_N) lethal[r * MAZE_N + c] = 0;
       }
   };
-  // Which edge is each opening on? (lower half => bottom edge => base sits at marker)
   const midR = (minR + maxR) / 2;
-  const startBottom = raw.start[1] > midR;
-  const goalBottom = raw.goal[1] > midR;
-  // Clear room for the rig: bottom openings need room ABOVE (balloon floats up);
-  // top openings need room BELOW (box hangs down).
-  clear(raw.start, startBottom ? -3 : -1, startBottom ? 1 : 3);
-  clear(raw.goal, -2, 2); // generous: covers the whole goal zone
+  const startBottom = startCell[1] > midR;
+  const goalBottom = goalCell[1] > midR;
+  clear(startCell, startBottom ? -3 : -1, startBottom ? 1 : 3);
+  clear(goalCell, -2, 2);
 
-  // GOAL zone: a square around the GOAL marker. Reaching any cell inside wins.
-  const GZ = 2; // half-size in tiles (5x5 square)
+  const GZ = 2; // half-size of the goal zone in tiles (5x5)
   const goalZone = {
-    c0: Math.max(0, raw.goal[0] - GZ), r0: Math.max(0, raw.goal[1] - GZ),
-    c1: Math.min(MAZE_N - 1, raw.goal[0] + GZ), r1: Math.min(MAZE_N - 1, raw.goal[1] + GZ),
+    c0: Math.max(0, goalCell[0] - GZ), r0: Math.max(0, goalCell[1] - GZ),
+    c1: Math.min(MAZE_N - 1, goalCell[0] + GZ), r1: Math.min(MAZE_N - 1, goalCell[1] + GZ),
   };
 
   // Build the pixel-perfect solid mask from each lethal cell's actual glyph pixels.
@@ -101,27 +100,13 @@ export function loadMaze(index: number): PlayMaze {
 
   const ctr = (cell: [number, number]) => ({ x: cell[0] * TILE + TILE / 2, y: cell[1] * TILE + TILE / 2 });
   return {
-    raw,
-    lethal,
-    mask,
-    start: ctr(raw.start),
-    goal: ctr(raw.goal),
-    goalZone,
-    startBottom,
-    goalBottom,
-    // keep the balloon just inside the border rectangle
-    bounds: { x0: (minC + 1) * TILE, y0: (minR + 1) * TILE, x1: (maxC) * TILE, y1: (maxR) * TILE },
+    raw, lethal, mask,
+    startCell, goalCell,
+    start: ctr(startCell),
+    goal: ctr(goalCell),
+    goalZone, startBottom, goalBottom,
+    bounds: { x0: (minC + 1) * TILE, y0: (minR + 1) * TILE, x1: maxC * TILE, y1: maxR * TILE },
   };
-}
-
-/** Clear a small pocket of lethal cells around a pixel position (spawn safety). */
-export function clearAround(maze: PlayMaze, px: number, py: number, rc = 1, rr = 1) {
-  const cc = Math.floor(px / TILE), cr = Math.floor(py / TILE);
-  for (let dr = -rr; dr <= rr; dr++)
-    for (let dc = -rc; dc <= rc; dc++) {
-      const c = cc + dc, r = cr + dr;
-      if (c >= 0 && c < MAZE_N && r >= 0 && r < MAZE_N) maze.lethal[r * MAZE_N + c] = 0;
-    }
 }
 
 /** Is the solid (lethal) pixel mask set at pixel (x,y)? */
@@ -157,9 +142,19 @@ export function segmentHits(maze: PlayMaze, x0: number, y0: number, x1: number, 
   return false;
 }
 
+/** A moving spike/block: oscillates between cell (fc,fr) and (tc,tr). */
+export interface Spike { fc: number; fr: number; tc: number; tr: number; t: number; period: number; }
+
+/** Current pixel centre of a moving spike at its phase. */
+export function spikePos(s: Spike): { x: number; y: number } {
+  const u = s.period > 0 ? 0.5 - 0.5 * Math.cos((s.t / s.period) * Math.PI * 2) : 0;
+  const c = s.fc + (s.tc - s.fc) * u, r = s.fr + (s.tr - s.fr) * u;
+  return { x: c * TILE + TILE / 2, y: r * TILE + TILE / 2 };
+}
+
 /** Pixel-perfect test of a moving spike's thorn pixels against a disc (balloon/box). */
 export function spikeHitsDisc(sx: number, sy: number, cx: number, cy: number, r: number): boolean {
-  const ox = sx - TILE / 2, oy = sy - TILE / 2; // spike glyph top-left
+  const ox = sx - TILE / 2, oy = sy - TILE / 2;
   const r2 = r * r;
   for (const [px, py] of THORN_PIXELS) {
     const dx = ox + px + 0.5 - cx, dy = oy + py + 0.5 - cy;
@@ -168,50 +163,14 @@ export function spikeHitsDisc(sx: number, sy: number, cx: number, cy: number, r:
   return false;
 }
 
-export const MAZE_COUNT = MAZES.length;
-
-/** A thorn that oscillates horizontally between cols c0..c1 on row r. */
-export interface Spike {
-  r: number; c0: number; c1: number; t: number; period: number;
-}
-
-/** Deterministically place `count` moving spikes in roomy open horizontal runs,
- * away from START/GOAL. Returns [] for count<=0. */
-export function genSpikes(maze: PlayMaze, count: number, speedCellsPerSec: number): Spike[] {
-  if (count <= 0) return [];
-  const { lethal } = maze;
-  const sCell = maze.raw.start, gCell = maze.raw.goal;
-  const far = (c: number, r: number) =>
-    Math.abs(c - sCell[0]) + Math.abs(r - sCell[1]) > 3 &&
-    Math.abs(c - gCell[0]) + Math.abs(r - gCell[1]) > 3;
-
-  const runs: Array<{ r: number; c0: number; c1: number }> = [];
-  for (let r = 2; r < MAZE_N - 2; r++) {
-    let c = 0;
-    while (c < MAZE_N) {
-      if (lethal[r * MAZE_N + c]) { c++; continue; }
-      let e = c;
-      while (e < MAZE_N && !lethal[r * MAZE_N + e]) e++;
-      if (e - c >= 5 && far(c, r) && far(e - 1, r)) {
-        runs.push({ r, c0: c, c1: e - 1 }); // travel the full open run (wider)
-      }
-      c = e;
+/** Clear a small pocket of lethal cells around a pixel position (spawn safety). */
+export function clearAround(maze: PlayMaze, px: number, py: number, rc = 1, rr = 1) {
+  const cc = Math.floor(px / TILE), cr = Math.floor(py / TILE);
+  for (let dr = -rr; dr <= rr; dr++)
+    for (let dc = -rc; dc <= rc; dc++) {
+      const c = cc + dc, r = cr + dr;
+      if (c >= 0 && c < MAZE_N && r >= 0 && r < MAZE_N) maze.lethal[r * MAZE_N + c] = 0;
     }
-  }
-  // spread picks across the run list deterministically
-  const spikes: Spike[] = [];
-  for (let i = 0; i < count && runs.length; i++) {
-    const run = runs[Math.floor((i * 0.618 + 0.13) * runs.length) % runs.length];
-    const span = Math.max(2, run.c1 - run.c0);
-    const period = (span / speedCellsPerSec) * 2; // there-and-back
-    spikes.push({ r: run.r, c0: run.c0, c1: run.c0 + span, t: i * 0.4, period });
-  }
-  return spikes;
 }
 
-/** Current pixel centre of a moving spike at its phase. */
-export function spikePos(s: Spike): { x: number; y: number } {
-  const u = 0.5 - 0.5 * Math.cos((s.t / s.period) * Math.PI * 2);
-  const col = s.c0 + (s.c1 - s.c0) * u;
-  return { x: col * TILE + TILE / 2, y: s.r * TILE + TILE / 2 };
-}
+export const MAZE_COUNT = MAZES.length;

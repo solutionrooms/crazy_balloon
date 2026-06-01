@@ -1,5 +1,5 @@
 import { MAZES, MAZE_N, SPACE_TILE, FILLER_TILE, type RomMaze } from "../levels/mazes";
-import { TILE } from "../engine/constants";
+import { TILE, type ColorName } from "../engine/constants";
 import { decodeTile } from "../gfx/tiles";
 import { GFX1_CHARS } from "../gfx/romTiles";
 
@@ -142,8 +142,10 @@ export function segmentHits(maze: PlayMaze, x0: number, y0: number, x1: number, 
   return false;
 }
 
-/** A moving spike/block: oscillates between cell (fc,fr) and (tc,tr). */
-export interface Spike { fc: number; fr: number; tc: number; tr: number; t: number; period: number; }
+/** A spike/block at (fc,fr); if period>0 it oscillates to (tc,tr). */
+export interface Spike {
+  fc: number; fr: number; tc: number; tr: number; t: number; period: number; color: ColorName;
+}
 
 /** Current pixel centre of a moving spike at its phase. */
 export function spikePos(s: Spike): { x: number; y: number } {

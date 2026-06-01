@@ -24,6 +24,23 @@ export const PALETTE = {
 
 export type ColorName = keyof typeof PALETTE;
 
+// Crazy Balloon color-RAM palette index (low nibble) -> our colour.
+export const COLOR_PALETTE: ColorName[] = [
+  "cyan",    // 0
+  "cyan",    // 1  cyan thorns
+  "magenta", // 2  magenta thorns
+  "magenta", // 3
+  "red",     // 4
+  "green",   // 5  green thorns + START
+  "red",     // 6  GOAL
+  "yellow",  // 7
+  "white",   // 8
+  "white", "white", "white", "white", "white", "white", "white", // 9-15
+];
+
+// Spike colours the editor cycles through (palette indices).
+export const SPIKE_COLORS = [1, 2, 5, 4, 7, 8];
+
 // --- Visible viewport: the 32x32 VRAM has 4 overscan columns; the maze content
 // sits in cols 5..30, rows 3..29 (verified across all 3 base mazes). ---
 export const CROP_LEFT_COLS = 4; // show cols 4..31 -> border ~1 col from edges

@@ -1,7 +1,7 @@
 import {
   SCREEN_W, SCREEN_H, TILE, CROP_LEFT_COLS, GOAL_BONUS, PROGRESS_POINTS,
-  PALETTE, EXTRA_LIFE_SCORE, READY_SEC,
-  SWING_AMP_PER_LOOP, MOVE_SPEED_PER_LOOP, type ColorName,
+  PALETTE, COLOR_PALETTE, EXTRA_LIFE_SCORE, READY_SEC,
+  SWING_AMP_PER_LOOP, MOVE_SPEED_PER_LOOP,
 } from "../engine/constants";
 import { chars } from "../gfx/tiles";
 import { MAZES, MAZE_N, SPACE_TILE, FILLER_TILE } from "../levels/mazes";
@@ -34,23 +34,6 @@ interface RaceState {
 
 // Settings-menu layout (shared by render + pointer hit-testing).
 const MENU_Y0 = 46, MENU_ROWH = 16, MENU_MINUS = 150, MENU_VAL = 164, MENU_PLUS = 196;
-
-// Crazy Balloon color-RAM palette index (low nibble) -> our colour. Derived from
-// the ROM colour data + the arcade reference (1=cyan thorns, 2=magenta, 5/6=green,
-// 4=red goal). Tunable as we compare against the original.
-const COLOR_PALETTE: ColorName[] = [
-  "cyan",    // 0
-  "cyan",    // 1  cyan thorns (most of the maze)
-  "magenta", // 2  magenta thorns
-  "magenta", // 3
-  "red",     // 4
-  "green",   // 5  green thorns + START bar
-  "red",     // 6  GOAL bar
-  "yellow",  // 7
-  "white",   // 8
-  "white",   // 9
-  "white", "white", "white", "white", "white", "white", // 10-15
-];
 
 export class Game {
   private state: State = "title";
@@ -86,14 +69,19 @@ export class Game {
   }
 
   private toSpike(es: EditSpike): Spike {
-    const dist = Math.hypot(es.to[0] - es.from[0], es.to[1] - es.from[1]);
+    const to = es.to ?? es.cell; // static spike: end = start
+    const dist = Math.hypot(to[0] - es.cell[0], to[1] - es.cell[1]);
     return {
-      fc: es.from[0], fr: es.from[1], tc: es.to[0], tr: es.to[1], t: 0,
-      period: es.speed > 0 ? (2 * dist) / es.speed : 0,
+      fc: es.cell[0], fr: es.cell[1], tc: to[0], tr: to[1], t: 0,
+      period: es.to && es.speed > 0 ? (2 * dist) / es.speed : 0,
+      color: COLOR_PALETTE[es.color] ?? "yellow",
     };
   }
 
-  private s(key: string) { return this.settings.get(key); }
+  private s(key: string) {
+    const o = this.store.edit(this.level).options; // per-level override wins
+    return o[key] !== undefined ? o[key] : this.settings.get(key);
+  }
   private theme() { return MAZES[this.level].theme; }
   private radius() { return this.s("balloonSize"); }
 
@@ -158,7 +146,7 @@ export class Game {
       if (!this.editor.active) this.reloadMaze();
     }
     if (this.editor.active) {
-      if (playing) this.editor.handle(this.input, this.level);
+      if (playing) this.editor.handle(this.input, this.level, this.settings);
       this.input.endFrame();
       return;
     }
@@ -458,7 +446,7 @@ export class Game {
       ctx.save(); ctx.translate(XOFF, 0); this.drawMaze(ctx); ctx.restore();
     }
     if (this.editor.active && onMaze) {
-      this.editor.render(ctx, this.maze, this.level, XOFF);
+      this.editor.render(ctx, this.maze, this.level, XOFF, this.settings);
       return;
     }
     if (onMaze) {
@@ -489,7 +477,7 @@ export class Game {
   private drawSpikes(ctx: CanvasRenderingContext2D) {
     for (const sp of this.spikes) {
       const p = spikePos(sp);
-      chars.draw(ctx, 0x39, "yellow", Math.round(p.x - TILE / 2), Math.round(p.y - TILE / 2));
+      chars.draw(ctx, 0x39, sp.color, Math.round(p.x - TILE / 2), Math.round(p.y - TILE / 2));
     }
   }
 
